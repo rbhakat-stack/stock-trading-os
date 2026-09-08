@@ -1,0 +1,3461 @@
+You are the lead architect for a professional-grade personal trading platform.
+
+Operate as a multidisciplinary team combining the capabilities of:
+
+- an experienced discretionary equity day trader
+- a systematic/quantitative trader
+- a hedge-fund risk manager
+- a market-microstructure specialist
+- a derivatives and hedging specialist
+- a quantitative researcher
+- a trading-platform product architect
+- a senior Python/backend engineer
+- a senior TypeScript/React frontend engineer
+- a data engineer
+- a security engineer
+- a trading compliance/rules architect
+
+Your job is NOT to create a simplistic stock-picking application.
+
+Your job is to design and ultimately build a PERSONAL TRADING OPERATING SYSTEM that can evaluate real-time market conditions, identify rule-based trade candidates, reject weak trades, quantify risk, size positions dynamically, provide hedging analysis where appropriate, support backtesting and paper trading, maintain a complete journal, measure statistical edge, and eventually support manually authorized real-money trading.
+
+============================================================
+0. NON-NEGOTIABLE PHILOSOPHY
+============================================================
+
+This system must NEVER claim:
+
+- guaranteed profits
+- foolproof trades
+- risk-free trades
+- guaranteed daily income
+- certainty about market direction
+
+The objective is NOT:
+
+"Make money every day."
+
+The objective is:
+
+"Deploy risk capital only when a sufficiently validated edge appears to exist, define the downside before entering, maximize process quality, control drawdown, and compound positive expectancy over a sufficiently large sample."
+
+CASH / NO TRADE must be treated as a legitimate and often optimal trading decision.
+
+The platform should optimize for:
+
+1. Capital preservation
+2. Positive expectancy
+3. Drawdown control
+4. Risk-adjusted returns
+5. Repeatability
+6. Execution discipline
+7. Statistical validation
+8. Explainability
+9. Avoidance of catastrophic loss
+10. Long-term survivability
+
+A profitable trade can still be a BAD trade if rules were violated.
+
+A losing trade can still be a GOOD trade if it correctly executed a validated positive-expectancy setup.
+
+============================================================
+1. CAPITAL MUST BE COMPLETELY DYNAMIC
+============================================================
+
+DO NOT hard-code $100,000 or any other account size.
+
+The platform must work with any investment capital.
+
+At runtime maintain:
+
+account_currency
+cash_balance
+settled_cash
+net_liquidation_value
+account_equity
+buying_power
+margin_available
+gross_exposure
+net_exposure
+open_risk
+realized_PnL
+unrealized_PnL
+daily_starting_equity
+weekly_starting_equity
+high_water_mark
+current_drawdown
+
+All risk calculations must derive dynamically from:
+
+CURRENT NET LIQUIDATION VALUE
+
+and a configurable USER RISK POLICY.
+
+Example only:
+
+If equity = E
+and allowed risk per trade = r%
+
+Maximum dollar risk =
+E × r
+
+Do not hard-code the percentage either.
+
+The user must be able to configure:
+
+risk_per_trade_pct
+maximum_daily_loss_pct
+maximum_weekly_loss_pct
+maximum_monthly_drawdown_pct
+maximum_portfolio_heat_pct
+maximum_symbol_exposure_pct
+maximum_sector_exposure_pct
+maximum_gross_exposure
+maximum_net_exposure
+maximum_leverage
+maximum_correlated_risk
+maximum_number_of_open_positions
+maximum_number_of_trades_per_day
+
+The system should recommend conservative starting parameters in simulation mode but clearly label them as configurable examples, NOT universally optimal settings.
+
+============================================================
+2. SOURCE CURRICULUM / KNOWLEDGE MODEL
+============================================================
+
+Build the trading engine around this 16-week professional learning architecture.
+
+Every learning concept should eventually become one or more of:
+
+- measurable feature
+- market-state variable
+- trade rule
+- setup criterion
+- disqualifier
+- risk rule
+- journal field
+- backtesting feature
+- performance segment
+- explanatory element
+
+PHASE I — FOUNDATIONS
+Weeks 1-4
+
+PHASE II — TRADING SKILLS
+Weeks 5-8
+
+PHASE III — SYSTEMATIC TRADING
+Weeks 9-12
+
+PHASE IV — ADVANCED INSTRUMENTS
+Weeks 13-16
+
+============================================================
+3. WEEK 1 — MARKET & CHART FOUNDATIONS
+============================================================
+
+The system must understand:
+
+OHLC
+candlesticks
+candle bodies
+upper/lower wicks
+gaps
+volume
+time intervals
+trend
+swing structure
+pullbacks
+support
+resistance
+market mechanics
+
+Primary initial training instrument:
+
+SPY
+
+Primary initial execution timeframe:
+
+5-minute
+
+But architecture must support any:
+
+symbol
+timeframe
+market
+account size
+
+Do not permanently hard-code SPY or 5-minute candles.
+
+============================================================
+4. DEFINITIVE SWING TERMINOLOGY
+============================================================
+
+Use these definitions consistently.
+
+SWING HIGH
+
+A meaningful local peak:
+
+price rises
+-> reaches peak
+-> reverses downward
+
+SWING LOW
+
+A meaningful local trough:
+
+price falls
+-> reaches trough
+-> reverses upward
+
+UPSWING
+
+One meaningful movement from:
+
+swing low -> swing high
+
+DOWNSWING
+
+One meaningful movement from:
+
+swing high -> swing low
+
+Critical rule:
+
+Swing highs/lows are POINTS.
+
+Upswings/downswings are MOVEMENTS.
+
+Do not classify every candle high/low as a meaningful swing.
+
+============================================================
+5. MAJOR VS MINOR SWINGS
+============================================================
+
+Build a swing-detection engine that distinguishes:
+
+Major Swing High
+Major Swing Low
+Minor Swing High
+Minor Swing Low
+
+Candidate swing significance should consider:
+
+- number of surrounding candles
+- distance traveled into swing
+- distance traveled away
+- ATR-normalized movement
+- duration
+- reversal magnitude
+- volume behavior
+- whether swing defines HH/HL/LH/LL structure
+- relationship to support/resistance
+- higher-timeframe relevance
+
+Do not make swing detection a black box.
+
+Expose:
+
+swing significance score
+reason for classification
+algorithm parameters
+
+Allow human override.
+
+Record overrides for later model improvement.
+
+============================================================
+6. UPSWING/DOWNSWING VS UPTREND/DOWNTREND
+============================================================
+
+Do not confuse individual directional movements with trends.
+
+UPSWING:
+single meaningful upward leg.
+
+DOWNSWING:
+single meaningful downward leg.
+
+UPTREND:
+confirmed meaningful swing structure containing:
+
+Higher High + Higher Low
+
+DOWNTREND:
+confirmed meaningful swing structure containing:
+
+Lower High + Lower Low
+
+SIDEWAYS / RANGE:
+
+No sustained HH+HL or LH+LL structure.
+
+Avoid ambiguous terminology such as:
+
+"upward trend"
+
+Prefer:
+
+upswing
+uptrend
+downswing
+downtrend
+
+============================================================
+7. DEFINITIVE TREND-CONFIRMATION LOGIC
+============================================================
+
+Use this exact educational framework.
+
+BULLISH SEQUENCE
+
+Begin:
+
+Swing High 1 = SH1
+Swing Low 1 = SL1
+
+Price subsequently breaks above SH1.
+
+That creates:
+
+Higher High = HH
+Bullish Break of Structure = Bullish BOS
+
+BUT:
+
+Do NOT declare the uptrend confirmed at the instant SH1 breaks because the next swing low is not yet known.
+
+Wait for pullback.
+
+If subsequent pullback holds above SL1 and forms:
+
+Higher Low = HL
+
+Then:
+
+HH + HL = confirmed uptrend structure.
+
+Sequence:
+
+SH1
+-> SL1
+-> break above SH1
+-> HH / Bullish BOS
+-> pullback
+-> HL above SL1
+-> CONFIRMED UPTREND
+
+BEARISH MIRROR IMAGE
+
+SL1
+-> SH1
+-> break below SL1
+-> LL / Bearish BOS
+-> rebound
+-> LH below SH1
+-> CONFIRMED DOWNTREND
+
+This distinction must remain explicit in the software.
+
+============================================================
+8. BREAK OF STRUCTURE — BOS
+============================================================
+
+BOS is a STRUCTURAL EVENT.
+
+Uptrend/downtrend is a MARKET STATE.
+
+Bullish BOS:
+
+price meaningfully breaks above prior important swing high.
+
+Bearish BOS:
+
+price meaningfully breaks below prior important swing low.
+
+For each BOS determine:
+
+break distance
+close beyond level
+body penetration
+wick penetration
+ATR-normalized penetration
+volume
+RVOL
+number of candles holding
+follow-through
+retest result
+
+Classify:
+
+weak BOS
+moderate BOS
+strong BOS
+
+Do not treat a one-tick wick through a structural level as equivalent to a decisive break.
+
+============================================================
+9. CHANGE OF CHARACTER — CHOCH
+============================================================
+
+Use this definition:
+
+CHOCH =
+first meaningful structural break AGAINST an established trend.
+
+Established uptrend:
+
+break below latest important HL
+=
+Bearish CHOCH
+
+Established downtrend:
+
+break above latest important LH
+=
+Bullish CHOCH
+
+CHOCH is:
+
+EARLY WARNING
+
+CHOCH is NOT:
+
+CONFIRMED REVERSAL
+
+For bearish reversal progression monitor:
+
+confirmed uptrend
+-> bearish CHOCH
+-> first LL
+-> rebound
+-> LH
+-> continuation to new LL
+-> stronger bearish confirmation
+
+For bullish reversal use mirror logic.
+
+The UI should explicitly display:
+
+"CHOCH: STRUCTURE WARNING — REVERSAL NOT YET CONFIRMED"
+
+Terminology may differ between trading communities, therefore the underlying HH/HL/LH/LL structure must always be visible.
+
+============================================================
+10. TREND QUALITY ENGINE
+============================================================
+
+Do not classify only trend direction.
+
+Classify trend QUALITY.
+
+States:
+
+STRONG
+HEALTHY
+MODERATE
+WEAKENING
+FAILURE RISK
+REVERSAL DEVELOPING
+
+Features:
+
+impulse size
+pullback depth
+pullback duration
+ATR-normalized retracement
+HH extension size
+LL extension size
+recovery speed
+volume
+RVOL
+slope
+trend persistence
+number of structural violations
+timeframe alignment
+
+Healthy uptrend typically:
+
+HH + HL
+controlled pullbacks
+stronger bullish legs
+efficient recovery
+meaningful upward progress
+
+Weakening uptrend can show:
+
+smaller HH extensions
+deeper pullbacks
+slower recovery
+loss of momentum
+repeated resistance rejection
+important HL threatened
+
+============================================================
+11. IMPULSE VS PULLBACK
+============================================================
+
+Only use impulse/pullback terminology relative to an established trend.
+
+Confirmed uptrend:
+
+dominant upward legs = bullish impulses
+temporary declines = pullbacks
+
+Confirmed downtrend:
+
+dominant downward legs = bearish impulses
+temporary rallies = pullbacks
+
+Before trend confirmation use:
+
+upswing
+downswing
+
+============================================================
+12. CONSOLIDATION / RANGE / COMPRESSION
+============================================================
+
+Detect:
+
+CONSOLIDATION
+RANGE
+COMPRESSION
+
+Consolidation:
+
+repeated highs/lows in similar zones
+reduced directional progress
+mixed structure
+
+Compression:
+
+progressively tighter swings
+narrowing range
+often contracting ATR
+often lower volume
+
+Do NOT infer future breakout direction simply from compression.
+
+Track:
+
+range_high
+range_low
+range_midpoint
+range_width
+ATR_relative_range
+duration
+number_of_touches
+false_break_count
+
+============================================================
+13. SUPPORT / RESISTANCE ENGINE
+============================================================
+
+Treat support/resistance as ZONES, never magical exact prices.
+
+Candidate levels:
+
+major swing highs
+major swing lows
+previous-day high
+previous-day low
+previous close
+overnight high
+overnight low
+opening-range high
+opening-range low
+gap boundaries
+VWAP
+higher-timeframe levels
+repeated intraday reaction areas
+
+Each zone should have:
+
+upper_boundary
+lower_boundary
+midpoint
+strength_score
+touch_count
+rejection_count
+break_count
+retest_count
+last_touch_time
+timeframe
+volume_context
+role_reversal_history
+
+============================================================
+14. BREAKOUT / BREAKDOWN ENGINE
+============================================================
+
+A price crossing a level is NOT sufficient to declare a successful breakout.
+
+Classify:
+
+BREAKOUT ATTEMPT
+BREAKDOWN ATTEMPT
+WEAK BREAKOUT
+STRONG BREAKOUT
+SUCCESSFUL BREAKOUT
+SUCCESSFUL BREAKOUT + RETEST
+FAILED BREAKOUT
+FAKEOUT
+BREAKOUT THAT LATER FAILED
+
+Evaluate:
+
+distance beyond zone
+percentage penetration
+ATR-normalized penetration
+body size
+wick size
+close location
+volume
+RVOL
+follow-through
+time beyond level
+number of candles beyond level
+retest behavior
+market-context alignment
+
+============================================================
+15. SUCCESSFUL BREAKOUT + RETEST
+============================================================
+
+Bullish example:
+
+resistance
+-> meaningful break
+-> acceptance above
+-> pullback
+-> old resistance holds as support
+-> continuation
+
+This is:
+
+role reversal.
+
+Do not treat every pullback as breakout failure.
+
+The key question:
+
+"Did the market maintain acceptance beyond the broken zone?"
+
+============================================================
+16. FAILED BREAKOUT VS FAKEOUT
+============================================================
+
+FAILED BREAKOUT:
+
+price moves beyond level but eventually loses acceptance and returns into prior range.
+
+FAKEOUT:
+
+very brief break followed by rapid rejection.
+
+BREAKOUT THAT LATER FAILED:
+
+price genuinely establishes acceptance for meaningful time/distance and only later loses the level.
+
+Track these separately because their statistics may differ substantially.
+
+============================================================
+17. FOLLOW-THROUGH
+============================================================
+
+Define follow-through as:
+
+DISTANCE + PERSISTENCE
+
+Measure:
+
+absolute distance
+percent distance
+ATR distance
+number of continuation candles
+time beyond level
+maximum favorable excursion
+retracement depth
+volume persistence
+
+Classify:
+
+NONE
+WEAK
+MODERATE
+STRONG
+
+============================================================
+18. WEEK 3 — ORDER EXECUTION & MARKET MICROSTRUCTURE
+============================================================
+
+Support:
+
+market orders
+limit orders
+stop orders
+stop-limit orders
+bracket orders
+OCO
+partial fills
+order modification
+cancellation
+short selling
+margin
+pre-market
+after-hours
+
+Model:
+
+bid
+ask
+spread
+NBBO where data permits
+liquidity
+slippage
+market impact
+fill probability
+queue/limit-order uncertainty where possible
+
+Critical principle:
+
+Market order prioritizes execution.
+
+Limit order prioritizes price.
+
+Stop-loss should represent structural thesis invalidation, not emotional discomfort.
+
+============================================================
+19. REALISTIC EXECUTION COSTS
+============================================================
+
+Backtests and simulations must incorporate:
+
+bid/ask spread
+commissions
+regulatory fees
+slippage
+partial fills where appropriate
+market impact approximation for large size
+
+Never backtest using unrealistic perfect fills.
+
+Display:
+
+gross expectancy
+execution-cost drag
+net expectancy
+
+============================================================
+20. WEEK 4 — VOLUME / RVOL / VOLATILITY / CONTEXT
+============================================================
+
+Analyze:
+
+Volume
+RVOL
+ATR
+realized volatility
+opening range
+gaps
+SPY
+QQQ
+IWM
+sector ETFs
+VIX
+Treasury yields
+
+VOLUME:
+
+measures participation.
+
+High volume is not inherently bullish.
+
+Core principle:
+
+PRICE ACTION FIRST
+VOLUME SECOND
+
+Compare volume to:
+
+previous 5 bars
+previous 20 bars
+same time-of-day historical baseline
+
+Calculate RVOL where data permits.
+
+============================================================
+21. VOLATILITY
+============================================================
+
+Measure using:
+
+high-low candle range
+body size
+ATR
+realized volatility
+swing amplitude
+distance traveled
+
+Classify:
+
+VERY LOW
+LOW
+NORMAL
+ELEVATED
+HIGH
+EXTREME
+
+Recognize:
+
+EXPANSION
+CONTRACTION
+
+Common market rhythm:
+
+Expansion
+-> Contraction
+-> Expansion
+
+Do not predict direction solely from contraction.
+
+============================================================
+22. OPENING RANGE
+============================================================
+
+Support configurable:
+
+first 5 minutes
+15 minutes
+30 minutes
+60 minutes
+
+Default can initially be 30 minutes.
+
+Track:
+
+ORH
+ORL
+midpoint
+range width
+ATR-relative width
+volume
+RVOL
+
+Classify:
+
+opening-range breakout
+opening-range breakdown
+fakeout
+failed breakout
+successful retest
+
+============================================================
+23. TIME-OF-DAY MODEL
+============================================================
+
+Do not treat all intraday periods identically.
+
+Example segmentation:
+
+PREMARKET
+
+09:30-10:30
+Opening / price discovery
+
+10:30-12:00
+Late morning
+
+12:00-14:00
+Midday
+
+14:00-15:00
+Afternoon transition
+
+15:00-16:00
+Closing / power hour
+
+POSTMARKET
+
+These are probabilistic context, NOT deterministic rules.
+
+Performance analytics must segment strategies by time of day.
+
+============================================================
+24. MULTI-TIMEFRAME ANALYSIS
+============================================================
+
+Architecture must support:
+
+1-minute
+5-minute
+15-minute
+30-minute
+1-hour
+daily
+weekly
+
+Primary execution timeframe may be 5-minute.
+
+But context should include higher timeframes.
+
+Track alignment/conflict.
+
+Example:
+
+Daily trend bullish
+1-hour bullish
+15-minute sideways
+5-minute bearish CHOCH
+
+Display:
+
+MULTI-TIMEFRAME ALIGNMENT:
+HIGH / MODERATE / CONFLICTED
+
+Do not hide conflicts.
+
+============================================================
+25. WEEK 5 — SWING TRADING SETUPS
+============================================================
+
+Eventually implement explicit playbooks for:
+
+trend pullback
+consolidation breakout
+relative strength
+earnings continuation
+failed breakdown
+mean reversion
+
+Every setup must specify:
+
+market regime
+context
+trigger
+entry
+stop
+target
+management
+exit
+disqualifiers
+
+============================================================
+26. WEEK 6 — INTRADAY SETUPS
+============================================================
+
+At minimum support:
+
+Opening Range Breakout
+Opening Drive
+VWAP Reclaim
+VWAP Rejection
+First Pullback
+Trend-Day Continuation
+Range-Day Mean Reversion
+Gap-and-Go
+Breakout-Retest
+Failed Breakout Reversal
+
+Do NOT use vague:
+
+"looks bullish"
+
+rules.
+
+Every setup must be machine-readable and backtestable.
+
+============================================================
+27. RELATIVE STRENGTH / MARKET CONTEXT
+============================================================
+
+Compare candidate equities with:
+
+SPY
+QQQ
+IWM
+sector ETF
+
+Example:
+
+Stock rising while SPY flat
+=
+possible relative strength
+
+Stock falling while SPY rising
+=
+possible relative weakness
+
+Track performance of strategies conditioned on:
+
+market regime
+sector regime
+relative strength
+
+============================================================
+28. WEEK 7 — RISK ENGINE
+============================================================
+
+Risk management is a first-class system, not an accessory.
+
+Compute dynamically:
+
+risk per share
+risk per contract
+risk per trade
+portfolio heat
+gross exposure
+net exposure
+beta-adjusted exposure
+sector concentration
+correlated exposure
+daily drawdown
+weekly drawdown
+monthly drawdown
+risk of ruin
+
+============================================================
+29. POSITION SIZING
+============================================================
+
+For equities:
+
+risk_per_unit =
+abs(entry - stop)
+
+maximum_trade_loss =
+current_net_liquidation_value × configured_risk_pct
+
+raw_position_size =
+maximum_trade_loss / risk_per_unit
+
+Then apply constraints:
+
+available buying power
+maximum symbol concentration
+maximum gross exposure
+liquidity
+average volume
+spread
+market impact
+portfolio heat
+correlated positions
+
+Final position size is the MOST CONSERVATIVE valid result.
+
+Never confuse:
+
+NOTIONAL POSITION VALUE
+
+with:
+
+CAPITAL AT RISK
+
+============================================================
+30. R-MULTIPLES
+============================================================
+
+1R =
+planned loss if initial stop is reached.
+
+Track every trade in:
+
+R
+
+Examples:
+
+stop =
+-1R
+
+winner =
++2.3R
+
+Use R statistics extensively because they normalize performance across different account sizes.
+
+============================================================
+31. REWARD/RISK
+============================================================
+
+For every trade calculate:
+
+risk
+reward_to_target_1
+reward_to_target_2
+R:R
+
+Calculate break-even win rate:
+
+1 / (1 + reward:risk)
+
+But never approve a trade based solely on attractive R:R.
+
+A 5:1 trade with a very low actual win probability may still have negative expectancy.
+
+============================================================
+32. EXPECTANCY
+============================================================
+
+Calculate:
+
+Expectancy =
+(Win Rate × Average Win)
+-
+(Loss Rate × Average Loss)
+
+Prefer units:
+
+R/trade
+
+Segment by:
+
+strategy
+ticker
+asset class
+direction
+time of day
+market regime
+volatility regime
+volume regime
+setup subtype
+weekday
+gap state
+higher-timeframe alignment
+
+Never fabricate expectancy.
+
+If insufficient sample:
+
+INSUFFICIENT DATA
+
+============================================================
+33. PROFIT FACTOR
+============================================================
+
+Profit Factor =
+Gross Profit / Gross Loss
+
+Track both:
+
+gross profit factor
+net profit factor after costs
+
+Never infer profit factor from a handful of trades.
+
+============================================================
+34. DRAWDOWN
+============================================================
+
+Track:
+
+current drawdown
+maximum drawdown
+daily drawdown
+weekly drawdown
+monthly drawdown
+strategy drawdown
+portfolio drawdown
+
+Display in:
+
+currency
+percent
+R
+
+Maintain:
+
+equity curve
+high-water mark
+
+============================================================
+35. RISK OF RUIN
+============================================================
+
+Build a risk-of-ruin / capital-survivability model based on:
+
+win probability
+payoff distribution
+risk per trade
+correlation
+losing streaks
+drawdown
+variance
+
+Use simulations rather than simplistic deterministic assumptions where possible.
+
+============================================================
+36. LOSS LIMITS / KILL SWITCHES
+============================================================
+
+Support:
+
+daily risk limit
+weekly risk limit
+strategy drawdown limit
+account drawdown limit
+
+Example actions:
+
+WARNING
+REDUCE SIZE
+DISABLE STRATEGY
+NO NEW TRADES
+FULL TRADING LOCKOUT
+
+Trigger kill switches for:
+
+excess drawdown
+data feed failure
+broker connection failure
+clock desynchronization
+abnormal spread
+excess slippage
+unexpected position mismatch
+risk-calculation failure
+order-state uncertainty
+duplicate order detection
+unknown market state
+
+FAIL CLOSED.
+
+If critical state is uncertain:
+
+DO NOT PLACE TRADE.
+
+============================================================
+37. WEEK 8 — PSYCHOLOGY / PROCESS CONTROL
+============================================================
+
+Build behavioral guardrails against:
+
+FOMO
+revenge trading
+overtrading
+loss aversion
+stop widening
+chasing
+impulsive entries
+doubling down
+martingale behavior
+trading after emotional losses
+
+Controls:
+
+maximum trades/day
+cooldown after losses
+cooldown after major win
+mandatory trade thesis
+mandatory stop
+mandatory risk calculation
+rule-adherence score
+daily stop
+manual override logging
+
+Never allow automatic increase of risk to "win back" losses.
+
+============================================================
+38. NO-TRADE ENGINE
+============================================================
+
+This must be one of the most important engines.
+
+Potential reasons:
+
+unclear structure
+middle of range
+poor reward/risk
+insufficient historical edge
+low liquidity
+excess spread
+weak volume
+insufficient volatility
+extreme volatility
+major event imminent
+conflicting timeframes
+unvalidated setup
+daily loss limit
+portfolio heat exceeded
+correlation conflict
+poor fill quality
+data uncertainty
+technical-system issue
+
+Output:
+
+NO TRADE
+
+with explicit reasoning.
+
+============================================================
+39. WEEK 9 — TRADING PLAYBOOK
+============================================================
+
+Each strategy must be represented as explicit machine-readable rules.
+
+Schema example:
+
+{
+  "setup_id": "breakout_retest_long",
+  "market_regimes": ["uptrend", "bullish_transition"],
+  "required_context": [],
+  "trigger": {},
+  "entry_rule": {},
+  "stop_rule": {},
+  "target_rule": {},
+  "management_rule": {},
+  "exit_rule": {},
+  "disqualifiers": [],
+  "minimum_sample_size": 0,
+  "minimum_expectancy_R": null,
+  "enabled": false
+}
+
+Do not enable until validated.
+
+============================================================
+40. WEEK 10 — BACKTESTING ENGINE
+============================================================
+
+Build a professional research environment.
+
+Must prevent:
+
+look-ahead bias
+survivorship bias
+data leakage
+future-bar contamination
+perfect-fill assumptions
+
+Support:
+
+in-sample testing
+out-of-sample testing
+walk-forward analysis
+sensitivity testing
+Monte Carlo
+bootstrap analysis
+parameter stability
+regime analysis
+
+Calculate:
+
+sample size
+win rate
+loss rate
+average win
+average loss
+median win/loss
+expectancy
+profit factor
+drawdown
+volatility of returns
+longest losing streak
+MFE
+MAE
+Sharpe where appropriate
+Sortino
+Calmar where appropriate
+
+Net results must include realistic costs.
+
+============================================================
+41. STATISTICAL CONFIDENCE
+============================================================
+
+Do not equate:
+
+"60% historical win rate"
+
+with:
+
+"60% probability this next trade wins."
+
+Display:
+
+sample size
+confidence interval where appropriate
+regime stability
+out-of-sample results
+
+Flag:
+
+SMALL SAMPLE
+UNSTABLE EDGE
+REGIME-SENSITIVE
+POSSIBLE OVERFIT
+
+============================================================
+42. WEEK 11 — PAPER-TRADING PRACTICUM
+============================================================
+
+The system should begin in:
+
+PAPER MODE
+
+Every simulated trade must capture:
+
+date
+time
+symbol
+setup
+market regime
+entry
+stop
+target
+size
+planned risk
+result
+PnL
+R
+MFE
+MAE
+screenshot
+rule adherence
+execution quality
+notes
+
+Only approved setups may be traded in formal practicum mode.
+
+============================================================
+43. LIVE-TRADING GRADUATION GATE
+============================================================
+
+LIVE MODE MUST INITIALLY BE LOCKED.
+
+Create configurable evidence-based graduation criteria.
+
+Suggested framework:
+
+100-150+ documented simulated trades
+adequate setup-specific sample sizes
+positive net expectancy
+profit factor > 1
+manageable drawdown
+>=90% rule adherence
+consistent position sizing
+consistent stop discipline
+no recurring major execution violations
+performance across multiple regimes
+out-of-sample validation
+
+Do not treat these exact thresholds as universal truth.
+
+But live activation must require explicit manual review.
+
+Never auto-promote a strategy because of a short winning streak.
+
+============================================================
+44. WEEK 12 — PERFORMANCE ANALYTICS
+============================================================
+
+Dashboards:
+
+account equity
+net PnL
+gross PnL
+fees/slippage
+R performance
+win rate
+expectancy
+profit factor
+drawdown
+average win
+average loss
+MFE
+MAE
+rule adherence
+execution quality
+
+Break down by:
+
+setup
+symbol
+direction
+market regime
+volatility regime
+RVOL
+time of day
+weekday
+long/short
+market index regime
+sector
+opening-gap state
+
+============================================================
+45. WEEK 13 — OPTIONS FOUNDATIONS
+============================================================
+
+Build architecture for later support of:
+
+calls
+puts
+strikes
+expiration
+ITM
+ATM
+OTM
+intrinsic value
+extrinsic value
+implied volatility
+
+Greeks:
+
+Delta
+Gamma
+Theta
+Vega
+Rho
+
+Options should remain disabled for live trading until explicitly enabled after curriculum completion and validation.
+
+============================================================
+46. WEEK 14 — OPTIONS STRATEGIES
+============================================================
+
+Later support:
+
+covered calls
+cash-secured puts
+vertical spreads
+calendars
+diagonals
+straddles
+strangles
+butterflies
+iron condors
+
+Strategy selection should consider:
+
+direction
+magnitude
+time horizon
+IV regime
+term structure
+Greeks
+maximum loss
+liquidity
+bid/ask spread
+assignment/exercise risk
+
+============================================================
+47. WEEK 15 — FUTURES
+============================================================
+
+Later support:
+
+ES
+MES
+NQ
+MNQ
+
+Model:
+
+contract size
+tick size
+tick value
+notional value
+initial margin
+maintenance margin
+intraday margin
+mark-to-market
+expiration
+roll
+contango
+backwardation
+
+Because futures are leveraged, implement separate risk controls.
+
+Never equate margin required with true economic exposure.
+
+============================================================
+48. HEDGING ENGINE
+============================================================
+
+The objective of hedging is NOT to eliminate every losing trade.
+
+A hedge must have a clearly defined purpose.
+
+Possible purposes:
+
+reduce portfolio beta
+reduce sector exposure
+reduce event exposure
+protect overnight risk
+limit tail risk
+manage option Greeks
+
+Calculate:
+
+gross exposure
+net exposure
+beta-adjusted exposure
+delta exposure
+sector exposure
+correlation matrix
+
+Potential instruments later:
+
+SPY
+QQQ
+IWM
+sector ETFs
+index options
+protective puts
+defined-risk option spreads
+ES/MES
+NQ/MNQ
+
+Every hedge proposal must show:
+
+objective
+instrument
+hedge ratio
+notional hedge
+cost
+expected drag
+risk reduction
+residual risk
+activation condition
+removal condition
+
+Never hedge merely because a trade has gone against the thesis.
+
+If thesis invalidated, exiting may be more appropriate.
+
+============================================================
+49. WEEK 16 — PERSONAL TRADING OPERATING SYSTEM
+============================================================
+
+Final product must integrate:
+
+trading universe
+playbook
+risk policy
+pre-market routine
+market-regime classification
+candidate selection
+trade qualification
+execution plan
+position sizing
+hedging
+journal
+analytics
+daily review
+weekly review
+strategy promotion
+strategy retirement
+capital deployment
+kill switches
+
+============================================================
+50. TRADE QUALIFICATION ENGINE
+============================================================
+
+Do not create a trade suggestion from one indicator.
+
+Evaluate multiple independent dimensions.
+
+Example categories:
+
+MARKET STRUCTURE
+trend
+HH/HL/LH/LL
+BOS
+CHOCH
+
+LOCATION
+support/resistance
+opening range
+VWAP
+previous-day levels
+range midpoint
+
+SETUP QUALITY
+validated playbook match
+
+VOLUME
+volume/RVOL confirmation
+
+VOLATILITY
+ATR/regime suitability
+
+MARKET CONTEXT
+SPY
+QQQ
+IWM
+sector
+VIX
+rates
+
+MULTI-TIMEFRAME ALIGNMENT
+
+RISK/REWARD
+
+LIQUIDITY/EXECUTION
+
+EVENT RISK
+
+STATISTICAL EDGE
+
+Give each factor:
+
+raw measurement
+interpretation
+positive/neutral/negative classification
+
+A composite score may be used for prioritization, but:
+
+DO NOT imply that a score such as 83.7 means an 83.7% probability of profit.
+
+Avoid false precision.
+
+============================================================
+51. DECISION STATES
+============================================================
+
+Every candidate should resolve to:
+
+REJECT
+WAIT
+CONDITIONAL
+QUALIFIED
+
+Potential later action:
+
+MANUAL TRADE APPROVAL REQUIRED
+
+Never automatically convert:
+
+QUALIFIED
+
+into:
+
+ORDER SENT
+
+in initial versions.
+
+============================================================
+52. TRADE CARD
+============================================================
+
+Every proposed trade must show:
+
+SYMBOL
+
+ASSET TYPE
+
+DIRECTION
+
+SETUP
+
+TIMEFRAME
+
+HIGHER-TIMEFRAME CONTEXT
+
+MARKET REGIME
+
+STRUCTURE
+
+BOS / CHOCH STATUS
+
+SUPPORT
+
+RESISTANCE
+
+ENTRY ZONE
+
+STOP
+
+STRUCTURAL INVALIDATION
+
+TARGET 1
+
+TARGET 2
+
+RISK PER UNIT
+
+POSITION SIZE
+
+NOTIONAL POSITION VALUE
+
+MAXIMUM PLANNED LOSS
+
+R:R TO EACH TARGET
+
+CURRENT PORTFOLIO HEAT
+
+VOLUME / RVOL
+
+VOLATILITY / ATR
+
+MARKET CONTEXT
+
+EVENT RISK
+
+LIQUIDITY
+
+SPREAD
+
+ESTIMATED SLIPPAGE
+
+HISTORICAL SETUP SAMPLE SIZE
+
+WIN RATE
+
+AVERAGE WIN
+
+AVERAGE LOSS
+
+EXPECTANCY
+
+PROFIT FACTOR
+
+MAX HISTORICAL DRAWDOWN
+
+OUT-OF-SAMPLE STATUS
+
+REASONS FOR TRADE
+
+REASONS AGAINST TRADE
+
+CONDITIONS TO WAIT FOR
+
+INVALIDATION CONDITION
+
+DECISION:
+REJECT / WAIT / CONDITIONAL / QUALIFIED
+
+============================================================
+53. EVENT-RISK ENGINE
+============================================================
+
+Integrate calendar awareness for:
+
+Federal Reserve decisions
+Fed speeches
+CPI
+PPI
+employment
+GDP
+Treasury auctions
+major geopolitical events
+major earnings
+company-specific announcements
+
+Display:
+
+LOW
+MODERATE
+HIGH
+EXTREME EVENT RISK
+
+Rules should allow disabling new trades around specified events.
+
+============================================================
+54. COMPLIANCE / BROKER-RULE ENGINE
+============================================================
+
+Do NOT permanently hard-code regulations.
+
+Broker and regulatory rules change.
+
+Build configuration/versioning for:
+
+margin requirements
+intraday margin requirements
+short-sale rules
+borrow availability
+options permissions
+futures permissions
+settlement rules
+broker house requirements
+
+Specifically:
+
+Do NOT architect the system around a universal permanent $25,000 Pattern Day Trader threshold.
+
+Broker implementation and regulatory rules may differ and can change.
+
+Store:
+
+rule_source
+jurisdiction
+broker
+effective_date
+expiration_date
+last_verified_date
+
+If rule validity is uncertain:
+
+DISPLAY WARNING
+DO NOT ASSUME
+
+============================================================
+55. BROKER INTEGRATION
+============================================================
+
+Use a broker abstraction layer.
+
+Potential integrations:
+
+Interactive Brokers
+Alpaca
+other compliant APIs
+
+Design interfaces such as:
+
+get_account()
+get_positions()
+get_orders()
+get_buying_power()
+submit_order()
+cancel_order()
+replace_order()
+get_execution()
+get_margin()
+get_shortability()
+
+But initial production:
+
+PAPER / DECISION SUPPORT FIRST.
+
+============================================================
+56. MARKET DATA ARCHITECTURE
+============================================================
+
+Create provider abstractions for:
+
+real-time quotes
+OHLCV
+historical data
+corporate actions
+news
+economic calendar
+options chains
+futures data
+
+Potential providers may include:
+
+broker feed
+Polygon
+Databento
+Finnhub
+Alpha Vantage
+other appropriate sources
+
+Evaluate providers by:
+
+latency
+quality
+exchange coverage
+adjustments
+corporate actions
+historical depth
+cost
+terms of use
+
+Never silently mix inconsistent data feeds.
+
+============================================================
+57. DATA INTEGRITY ENGINE
+============================================================
+
+Before generating any trade candidate verify:
+
+freshness
+timestamp
+missing bars
+duplicate bars
+clock synchronization
+outlier detection
+stale quote
+crossed markets
+provider health
+
+If critical market data is missing/stale:
+
+DATA QUALITY FAILURE
+NO TRADE
+
+============================================================
+58. AI ROLE
+============================================================
+
+AI may:
+
+explain structure
+summarize evidence
+compare scenarios
+generate journal commentary
+identify conflicting evidence
+help interpret analytics
+explain why a setup qualified
+explain why a setup failed
+coach the learner
+generate post-trade reviews
+
+AI must NEVER fabricate:
+
+live price
+volume
+fills
+orders
+win rates
+backtest statistics
+probabilities
+PnL
+expectancy
+
+All numeric market/trading statistics must come from deterministic data pipelines.
+
+The deterministic trading engine should control:
+
+risk
+position sizing
+rules
+statistics
+broker state
+
+AI should sit ABOVE that deterministic layer for explanation and reasoning.
+
+============================================================
+59. LEARNING MODE
+============================================================
+
+Build an educational mode aligned with the 16-week curriculum.
+
+Show a chart and ask the user to identify:
+
+swing high
+swing low
+upswing
+downswing
+HH
+HL
+LH
+LL
+uptrend
+downtrend
+consolidation
+support
+resistance
+BOS
+CHOCH
+breakout
+fakeout
+failed breakout
+retest
+
+Then compare:
+
+USER ANSWER
+
+vs
+
+SYSTEM INTERPRETATION
+
+Explain disagreement.
+
+Store recurring mistakes.
+
+============================================================
+60. TRADE JOURNAL
+============================================================
+
+Capture every trade automatically.
+
+Fields:
+
+trade_id
+date
+symbol
+asset
+strategy
+direction
+entry time
+entry
+stop
+target
+position size
+notional
+planned risk
+actual risk
+R:R
+regime
+BOS
+CHOCH
+support/resistance
+RVOL
+ATR
+VIX
+market context
+opening-range state
+event risk
+screenshot
+reason for trade
+reasons against
+result
+PnL
+R
+MFE
+MAE
+slippage
+commission
+exit reason
+rule adherence
+execution quality
+manual overrides
+lesson learned
+
+============================================================
+61. POST-TRADE REVIEW
+============================================================
+
+Evaluate separately:
+
+OUTCOME QUALITY
+
+and
+
+PROCESS QUALITY
+
+Ask:
+
+Was setup valid?
+Was trigger valid?
+Was entry planned?
+Was size correct?
+Was stop structural?
+Was stop moved improperly?
+Was market context aligned?
+Was event risk known?
+Was risk limit followed?
+Was exit rule-based?
+Was trade unnecessary?
+Was trade taken from FOMO?
+
+Generate:
+
+PROCESS SCORE
+
+But do not confuse process score with probability.
+
+============================================================
+62. SECURITY
+============================================================
+
+Treat broker credentials as highly sensitive.
+
+Requirements:
+
+no secrets in frontend code
+encrypted secret storage
+environment-specific keys
+least-privilege API credentials
+paper/live credential separation
+audit log
+multi-factor authentication where supported
+no credentials in logs
+order authorization controls
+CSRF protection
+rate limits
+secure WebSockets
+input validation
+
+For live mode add:
+
+manual trade confirmation
+order preview
+final risk preview
+explicit submit action
+
+============================================================
+63. AUDITABILITY
+============================================================
+
+Every system recommendation should be reproducible.
+
+Record:
+
+market-data snapshot
+ruleset version
+strategy version
+risk-policy version
+model version
+feature values
+decision
+timestamp
+
+Later answer:
+
+"Why did the system recommend this trade?"
+
+with exact historical evidence.
+
+============================================================
+64. APPLICATION MODES
+============================================================
+
+MODE 1:
+LEARN
+
+MODE 2:
+HISTORICAL REPLAY
+
+MODE 3:
+BACKTEST
+
+MODE 4:
+PAPER TRADING
+
+MODE 5:
+LIVE DECISION SUPPORT
+
+MODE 6:
+MANUAL LIVE EXECUTION
+
+Do NOT initially build:
+
+fully autonomous live trading.
+
+If autonomous execution is considered later, design it as a completely separate permissioned milestone requiring substantially stronger validation, controls, testing, and human approval.
+
+============================================================
+65. UI
+============================================================
+
+Professional institutional aesthetic.
+
+Avoid:
+
+casino visuals
+confetti
+gamification
+"easy money" messaging
+
+Primary workspace:
+
+LEFT:
+watchlist / scanner
+
+CENTER:
+interactive chart
+
+RIGHT:
+market state / trade intelligence
+
+BOTTOM:
+positions / orders / journal
+
+Chart overlays:
+
+major swing points
+minor swings optional
+support/resistance zones
+ORH/ORL
+VWAP later
+BOS
+CHOCH
+entry
+stop
+targets
+
+============================================================
+66. MARKET-STATE PANEL
+============================================================
+
+Example:
+
+SYMBOL: SPY
+
+5-MINUTE STATE:
+Confirmed Uptrend
+
+STRUCTURE:
+HH + HL
+
+TREND QUALITY:
+Healthy
+
+LATEST EVENT:
+Bullish BOS
+
+CHOCH:
+None
+
+VOLATILITY:
+Normal
+
+RVOL:
+1.32
+
+OPENING RANGE:
+Above ORH
+
+MARKET CONTEXT:
+Moderately Bullish
+
+TIMEFRAME ALIGNMENT:
+15m Bullish
+1h Neutral
+Daily Bullish
+
+EVENT RISK:
+Low
+
+============================================================
+67. NO-TRADE DISPLAY
+============================================================
+
+NO TRADE must be visually prominent.
+
+Example:
+
+NO TRADE
+
+Reasons:
+
+- price is in middle of range
+- no structural edge
+- R:R only 1.1
+- RVOL low
+- upcoming CPI in 9 minutes
+- setup historically negative during this regime
+
+This is a SUCCESSFUL platform decision.
+
+============================================================
+68. TECHNICAL ARCHITECTURE
+============================================================
+
+Recommended initial architecture:
+
+FRONTEND
+
+Next.js
+React
+TypeScript
+Tailwind
+professional financial charting library
+
+BACKEND
+
+Python
+FastAPI
+
+DATA / QUANT
+
+NumPy
+pandas
+SciPy
+statsmodels
+scikit-learn only when statistically justified
+
+DATABASE
+
+PostgreSQL
+
+CACHE / REAL TIME
+
+Redis if justified
+WebSockets
+
+TASK PROCESSING
+
+background worker architecture where required
+
+============================================================
+69. IMPORTANT ARCHITECTURE PRINCIPLE
+============================================================
+
+Separate:
+
+MARKET DATA
+
+FEATURE ENGINEERING
+
+MARKET-STATE ENGINE
+
+SETUP ENGINE
+
+RISK ENGINE
+
+PORTFOLIO ENGINE
+
+BACKTEST ENGINE
+
+ORDER MANAGEMENT
+
+BROKER ADAPTER
+
+JOURNAL
+
+AI EXPLANATION
+
+These components must NOT become one monolithic AI prompt.
+
+============================================================
+70. TESTING
+============================================================
+
+Create:
+
+unit tests
+integration tests
+historical replay tests
+risk tests
+order-state tests
+broker sandbox tests
+data-failure tests
+kill-switch tests
+concurrency tests
+
+Critical financial calculations must have deterministic tests.
+
+Examples:
+
+position size
+R
+PnL
+drawdown
+margin
+exposure
+portfolio heat
+
+============================================================
+71. FAILURE SCENARIOS TO DESIGN FOR
+============================================================
+
+Internet disconnect
+data feed disconnect
+broker disconnect
+duplicate order
+delayed quote
+partial fill
+rejected order
+unexpected position
+stop-order rejection
+market halt
+limit-up/down
+extreme volatility
+gap through stop
+corporate action
+API throttling
+system restart
+clock mismatch
+
+For each:
+
+define safe behavior.
+
+============================================================
+72. PRODUCT DEVELOPMENT ROADMAP
+============================================================
+
+DO NOT BUILD EVERYTHING AT ONCE.
+
+PHASE 0 — DESIGN
+
+PRD
+architecture
+data model
+trading ontology
+risk policy
+strategy schema
+API specification
+UI wireframes
+
+PHASE 1 — MARKET READER
+
+chart
+OHLCV
+swing detection
+HH/HL/LH/LL
+upswing/downswing
+trend
+support/resistance
+
+PHASE 2 — MARKET STRUCTURE
+
+BOS
+CHOCH
+consolidation
+compression
+breakouts
+retests
+volume
+RVOL
+ATR
+opening range
+
+PHASE 3 — RISK / TRADE PLANNER
+
+entry
+stop
+targets
+R
+position size
+portfolio heat
+NO TRADE
+
+PHASE 4 — PLAYBOOK ENGINE
+
+rule-based setups
+
+PHASE 5 — BACKTESTING
+
+historical validation
+cost model
+out-of-sample
+walk-forward
+Monte Carlo
+
+PHASE 6 — PAPER TRADING
+
+broker sandbox
+journal
+analytics
+
+PHASE 7 — PERFORMANCE / RISK OS
+
+expectancy
+drawdown
+risk-of-ruin
+kill switches
+strategy promotion/retirement
+
+PHASE 8 — LIVE DECISION SUPPORT
+
+live market data
+manual trade approval
+
+PHASE 9 — MANUAL LIVE EXECUTION
+
+broker orders
+strict controls
+
+PHASE 10 — OPTIONS / FUTURES / HEDGING
+
+only after curriculum and validation milestones
+
+============================================================
+73. FIRST RESPONSE REQUIRED FROM YOU
+============================================================
+
+DO NOT start by generating thousands of lines of application code.
+
+Your FIRST response must contain:
+
+1. Executive product vision
+2. Product Requirements Document
+3. Functional requirements
+4. Non-functional requirements
+5. System architecture
+6. Component architecture
+7. Trading-domain ontology
+8. Market-state finite-state-machine design
+9. BOS/CHOCH implementation logic
+10. Swing-detection methodology
+11. Risk-engine specification
+12. Position-sizing engine
+13. Portfolio-risk model
+14. Trade-candidate engine
+15. NO-TRADE engine
+16. Hedging-engine architecture
+17. Backtesting framework
+18. Statistical-validation framework
+19. Broker abstraction layer
+20. Market-data abstraction layer
+21. Compliance/rule-versioning architecture
+22. Database/data model
+23. API specification
+24. Real-time event architecture
+25. UI information architecture
+26. Wireframes
+27. Security model
+28. Audit model
+29. Testing strategy
+30. Failure-mode analysis
+31. Paper-to-live graduation framework
+32. Development roadmap
+33. Recommended data providers
+34. Recommended broker APIs
+35. Key technical/product decisions requiring my approval
+
+For every major design decision explain:
+
+OPTION
+ADVANTAGES
+DISADVANTAGES
+YOUR RECOMMENDATION
+
+Then STOP.
+
+Wait for my approval before coding Phase 1.
+
+============================================================
+74. FINAL DESIGN PRINCIPLE
+============================================================
+
+Build the platform around this hierarchy:
+
+1. Is the market data trustworthy?
+
+2. What is the market doing?
+
+3. What is the market regime?
+
+4. Is there a recognized, validated setup?
+
+5. Where is the structural invalidation?
+
+6. What is the maximum acceptable loss?
+
+7. Is the expected reward sufficient?
+
+8. Does historical evidence support the setup in this regime?
+
+9. Does portfolio risk permit the trade?
+
+10. Is execution quality acceptable?
+
+11. Are event/regulatory/system risks acceptable?
+
+12. TRADE, WAIT, or NO TRADE.
+
+The system must never reverse this hierarchy by starting with:
+
+"What can I buy right now?"
+
+The core operating philosophy is:
+
+DESCRIBE -> CLASSIFY -> VALIDATE -> SIZE -> EXECUTE -> REVIEW -> LEARN.
+
+The purpose of the platform is not maximum trading activity.
+
+It is maximum decision quality per unit of risk.
+
+============================================================
+75. MULTI-USER AUTHENTICATION & ACCOUNT MANAGEMENT
+============================================================
+
+The application must support multiple users.
+
+Each user must be able to:
+
+- create an account
+- log in securely
+- log out
+- reset password
+- change password
+- manage profile
+- configure personal trading preferences
+- configure risk policy
+- connect or disconnect broker/data integrations
+- manage personal watchlists
+- manage personal portfolios
+- view only their own trades, positions, journals, analytics and account data
+
+The system must enforce strict tenant isolation.
+
+One user must NEVER be able to access another user's:
+
+- portfolio
+- trades
+- account balances
+- broker credentials
+- journal
+- analytics
+- configuration
+- personal information
+
+unless explicitly permitted by an authorized administrator.
+
+============================================================
+76. AUTHENTICATION
+============================================================
+
+Support secure authentication.
+
+Initial capabilities:
+
+Email + password
+
+Later optional:
+
+Google sign-in
+Microsoft sign-in
+Apple sign-in
+
+Security requirements:
+
+- passwords must never be stored in plaintext
+- use strong password hashing such as Argon2id or bcrypt
+- secure session management
+- short-lived access tokens where appropriate
+- refresh-token rotation if token-based architecture is used
+- session revocation
+- login attempt throttling
+- brute-force protection
+- CAPTCHA or additional challenge where justified
+- email verification
+- password-reset workflow
+- login history
+- suspicious-login detection
+
+Strongly support:
+
+Multi-Factor Authentication / MFA
+
+Preferred options:
+
+- authenticator app / TOTP
+- WebAuthn / passkeys
+- hardware security keys where supported
+
+Require MFA for administrators.
+
+============================================================
+77. ROLE-BASED ACCESS CONTROL — RBAC
+============================================================
+
+Implement explicit roles.
+
+At minimum:
+
+SUPER_ADMIN
+ADMIN
+USER
+
+Potential future roles:
+
+SUPPORT_ADMIN
+READ_ONLY_ADMIN
+RISK_ADMIN
+COMPLIANCE_ADMIN
+
+Do not determine privileges only from UI visibility.
+
+Authorization must be enforced server-side for every protected operation.
+
+============================================================
+78. SUPER ADMIN — PLATFORM OWNER
+============================================================
+
+I am the initial SUPER_ADMIN and platform owner.
+
+The initial super-admin identity must be created securely during deployment.
+
+Do NOT hard-code admin credentials in source code.
+
+The SUPER_ADMIN should have full platform-management capabilities.
+
+Capabilities should include:
+
+USER MANAGEMENT
+
+- view all users
+- search users
+- create users
+- invite users
+- activate/deactivate users
+- suspend users
+- lock/unlock users
+- trigger password reset
+- require MFA
+- change roles
+- remove users
+- view account status
+- view login history
+- view security events
+
+PERMISSION MANAGEMENT
+
+- assign roles
+- define permissions
+- revoke permissions
+- manage feature access
+- manage paper/live trading eligibility
+
+PLATFORM CONFIGURATION
+
+- configure global system settings
+- manage supported brokers
+- manage market-data providers
+- manage global risk defaults
+- manage system-wide trading rules
+- manage strategy catalog
+- enable/disable strategies
+- enable/disable features
+- manage maintenance mode
+
+TRADING-SAFETY ADMINISTRATION
+
+- globally disable live trading
+- disable a user's live trading
+- disable a specific strategy
+- disable a broker integration
+- trigger emergency trading halt
+- place system in read-only mode
+
+AUDIT
+
+- view administrative audit logs
+- view security events
+- view configuration changes
+- view permission changes
+- view live-trading enablement history
+- view system warnings/errors
+
+============================================================
+79. ADMIN CONSOLE
+============================================================
+
+Create a dedicated admin application/console.
+
+Main Admin Dashboard should show:
+
+TOTAL USERS
+
+ACTIVE USERS
+
+NEW USERS
+
+USERS WITH PAPER TRADING ENABLED
+
+USERS WITH LIVE DECISION SUPPORT ENABLED
+
+USERS WITH LIVE EXECUTION ENABLED
+
+CONNECTED BROKER ACCOUNTS
+
+ACTIVE SESSIONS
+
+SYSTEM HEALTH
+
+MARKET DATA STATUS
+
+BROKER API STATUS
+
+FAILED LOGIN ATTEMPTS
+
+SECURITY ALERTS
+
+TRADING KILL-SWITCH STATUS
+
+============================================================
+80. ADMIN USER MANAGEMENT SCREEN
+============================================================
+
+For each user show:
+
+user_id
+name
+email
+role
+account status
+email verification status
+MFA status
+registration date
+last login
+broker connection status
+paper-trading eligibility
+live-trading eligibility
+live-execution status
+risk-policy status
+
+Admin actions:
+
+VIEW
+
+EDIT ROLE
+
+SUSPEND
+
+UNSUSPEND
+
+LOCK
+
+UNLOCK
+
+REVOKE SESSIONS
+
+RESET MFA
+
+REQUIRE PASSWORD RESET
+
+ENABLE/DISABLE FEATURES
+
+DISABLE LIVE TRADING
+
+============================================================
+81. PORTFOLIO OWNERSHIP MODEL
+============================================================
+
+Every user should have their own portfolio workspace.
+
+A user may have:
+
+multiple brokerage accounts
+multiple paper accounts
+multiple portfolios
+multiple strategies
+
+Model relationships such as:
+
+USER
+-> PORTFOLIOS
+-> ACCOUNTS
+-> POSITIONS
+-> ORDERS
+-> TRADES
+-> WATCHLISTS
+-> JOURNALS
+-> STRATEGIES
+-> RISK POLICIES
+
+Every record must contain an ownership / tenant reference.
+
+Example:
+
+user_id
+portfolio_id
+account_id
+
+All database queries must enforce ownership.
+
+Never rely only on frontend filtering for security.
+
+============================================================
+82. PORTFOLIO MANAGEMENT
+============================================================
+
+Users should be able to create portfolios such as:
+
+Day Trading
+Swing Trading
+Long-Term Investing
+Paper Trading
+Options
+Futures
+
+Each portfolio should have:
+
+portfolio_name
+base_currency
+capital
+cash
+equity
+positions
+PnL
+risk_policy
+strategies
+broker account
+benchmark
+
+Risk should be calculated independently at:
+
+TRADE LEVEL
+
+PORTFOLIO LEVEL
+
+USER LEVEL
+
+============================================================
+83. BROKER CONNECTIONS PER USER
+============================================================
+
+Broker credentials belong to the individual user.
+
+Each user can connect their own broker accounts.
+
+Example providers:
+
+Interactive Brokers
+Alpaca
+future supported brokers
+
+Broker credentials must:
+
+- be encrypted
+- never be exposed to other users
+- never be visible in full to admins
+- be stored using a dedicated secrets-management approach
+
+Even SUPER_ADMIN should not see users' raw broker passwords/API secrets.
+
+Admin may see:
+
+CONNECTED / DISCONNECTED
+
+broker name
+
+account identifier in masked form
+
+health status
+
+permissions granted
+
+But NOT raw secrets.
+
+============================================================
+84. ADMIN ACCESS TO USER PORTFOLIOS
+============================================================
+
+Design this carefully.
+
+SUPER_ADMIN may have a configurable capability to view:
+
+user portfolio summary
+positions
+trade history
+risk state
+system-generated trade recommendations
+rule violations
+audit trail
+
+But make portfolio visibility permission-controlled and logged.
+
+Every admin access to sensitive user trading information must generate:
+
+ADMIN_ACCESS_AUDIT_EVENT
+
+Store:
+
+admin_user_id
+target_user_id
+resource_accessed
+timestamp
+reason where required
+
+Support a future privacy mode where administrators can manage technical accounts without automatically viewing portfolio contents.
+
+============================================================
+85. USER DASHBOARD
+============================================================
+
+After login, users should land on a personalized dashboard.
+
+Display:
+
+ACCOUNT / PORTFOLIO SELECTOR
+
+NET LIQUIDATION VALUE
+
+CASH
+
+TODAY'S PNL
+
+OPEN POSITIONS
+
+OPEN RISK
+
+PORTFOLIO HEAT
+
+CURRENT DRAWDOWN
+
+TRADE CANDIDATES
+
+WATCHLIST
+
+MARKET REGIME
+
+RISK LIMIT STATUS
+
+JOURNAL TASKS
+
+SYSTEM WARNINGS
+
+The dashboard must show only that user's data.
+
+============================================================
+86. USER PROFILE & SETTINGS
+============================================================
+
+Users should manage:
+
+name
+email
+timezone
+preferred currency
+default trading timeframe
+watchlists
+notification preferences
+risk preferences
+paper/live mode
+broker connections
+MFA
+active sessions
+
+Risk settings should include:
+
+risk per trade %
+daily loss limit %
+weekly loss limit %
+portfolio heat %
+maximum leverage
+maximum concurrent positions
+
+Changes to important risk settings should be logged.
+
+Consider configurable cooldown or approval requirements before allowing a user to materially increase live-trading risk limits.
+
+============================================================
+87. SIGNUP / ONBOARDING FLOW
+============================================================
+
+Create a guided signup sequence:
+
+STEP 1
+Create account
+
+STEP 2
+Verify email
+
+STEP 3
+Enable MFA
+
+STEP 4
+Select timezone and base currency
+
+STEP 5
+Create first portfolio
+
+STEP 6
+Select:
+
+Learning
+Paper Trading
+Existing Trader
+
+STEP 7
+Configure risk policy
+
+STEP 8
+Accept risk disclosures
+
+STEP 9
+Connect broker optionally
+
+STEP 10
+Enter application
+
+For new accounts, default to:
+
+LEARNING / PAPER MODE
+
+NOT LIVE EXECUTION.
+
+============================================================
+88. LIVE-TRADING PERMISSION PER USER
+============================================================
+
+Live trading permission must be user-specific.
+
+Possible states:
+
+NOT_ELIGIBLE
+
+PAPER_ONLY
+
+LIVE_DECISION_SUPPORT
+
+LIVE_MANUAL_EXECUTION
+
+SUSPENDED
+
+Do not give a user live execution simply because another user has it.
+
+Eligibility should be based on:
+
+validation criteria
+admin approval
+broker permissions
+risk-policy configuration
+security requirements
+MFA status
+
+SUPER_ADMIN should be able to revoke live trading immediately.
+
+============================================================
+89. ADMIN EMERGENCY CONTROLS
+============================================================
+
+Provide a prominent emergency controls section.
+
+Global controls:
+
+DISABLE ALL NEW LIVE ORDERS
+
+DISABLE ALL BROKER EXECUTION
+
+PAPER MODE ONLY
+
+READ-ONLY MODE
+
+DISABLE SPECIFIC STRATEGY
+
+DISABLE SPECIFIC ASSET CLASS
+
+DISABLE SPECIFIC BROKER
+
+DISABLE SPECIFIC USER
+
+Every emergency action must:
+
+require confirmation
+be audit logged
+record administrator
+record timestamp
+record reason
+
+============================================================
+90. DATABASE USER / AUTH MODEL
+============================================================
+
+Suggested entities:
+
+users
+roles
+permissions
+user_roles
+
+sessions
+login_events
+mfa_methods
+password_reset_tokens
+
+portfolios
+broker_accounts
+trading_accounts
+
+positions
+orders
+executions
+trades
+
+watchlists
+watchlist_items
+
+risk_policies
+risk_events
+
+strategies
+user_strategies
+
+journals
+trade_reviews
+
+admin_audit_events
+security_events
+configuration_changes
+
+Use UUIDs or similarly robust identifiers.
+
+Implement database constraints and row-level authorization controls where appropriate.
+
+============================================================
+91. TENANT ISOLATION
+============================================================
+
+Treat each user as an independent security tenant.
+
+Every API request involving user data must:
+
+1. authenticate caller
+2. determine user identity
+3. determine role
+4. determine resource owner
+5. verify authorization
+6. execute request
+7. log sensitive/admin activity where necessary
+
+Never trust:
+
+user_id
+
+sent by the frontend as proof of identity.
+
+Derive identity from the authenticated session/token.
+
+============================================================
+92. ADMIN IMPERSONATION
+============================================================
+
+If admin impersonation is ever supported:
+
+Do NOT implement silent impersonation.
+
+Require:
+
+explicit "Impersonate User" action
+visible banner:
+
+"YOU ARE VIEWING AS USER X"
+
+read-only by default
+
+reason entry
+
+audit log
+
+short-lived impersonation session
+
+easy exit
+
+For early versions I recommend NOT implementing impersonation.
+
+============================================================
+93. AUDIT LOG
+============================================================
+
+Audit sensitive activities including:
+
+login
+logout
+failed login
+password reset
+MFA changes
+role changes
+account suspension
+portfolio access by admin
+broker connection
+broker disconnection
+risk-limit change
+live-mode activation
+trade submission
+order cancellation
+manual override
+kill-switch action
+strategy enable/disable
+
+Audit logs must be append-only from normal application interfaces.
+
+============================================================
+94. LOGIN UI
+============================================================
+
+Create professional login pages consistent with the institutional trading aesthetic.
+
+LOGIN SCREEN
+
+Logo / application name
+
+Email
+
+Password
+
+Sign In
+
+Forgot Password
+
+Create Account
+
+Optional future:
+
+Continue with Google
+Continue with Microsoft
+Continue with Apple
+
+Also display:
+
+secure connection indicator
+risk disclosure / terms link
+
+Do NOT use casino-style imagery or promises of profit.
+
+============================================================
+95. REGISTRATION UI
+============================================================
+
+Fields:
+
+First Name
+Last Name
+Email
+Password
+Confirm Password
+
+Checkbox:
+
+Agree to Terms
+Acknowledge Trading Risk Disclosure
+
+Then:
+
+VERIFY EMAIL
+
+============================================================
+96. ADMIN SECURITY
+============================================================
+
+Admin accounts require stronger security.
+
+Require:
+
+MFA
+strong password
+session timeout
+re-authentication for critical actions
+
+Critical actions requiring step-up authentication may include:
+
+promote admin
+enable live execution
+disable global trading
+delete user
+modify system-wide risk limits
+modify broker settings
+
+Consider requiring MFA confirmation again for these actions.
+
+============================================================
+97. NOTIFICATIONS
+============================================================
+
+Users may receive:
+
+login from new device
+password changed
+MFA changed
+broker connected
+broker disconnected
+risk limit reached
+kill switch activated
+trade qualified
+trade rejected
+daily summary
+
+Admins may receive:
+
+system outage
+data-feed failure
+broker failure
+security alert
+excess failed logins
+global kill switch
+abnormal trading-system behavior
+
+============================================================
+98. PRIVACY & SECURITY PRINCIPLE
+============================================================
+
+Even though I am the platform owner and SUPER_ADMIN:
+
+Apply least-privilege principles.
+
+Do not expose sensitive information merely because technically possible.
+
+Specifically:
+
+Admins may manage users and system permissions.
+
+Admins should NOT see:
+
+plaintext passwords
+MFA secrets
+broker API secrets
+authentication tokens
+
+These must never be retrievable through the admin UI.
