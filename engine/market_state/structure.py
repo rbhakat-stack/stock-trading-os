@@ -17,7 +17,14 @@ def label_structure(swing_points: list[SwingPoint]) -> list[SwingPoint]:
 
     last_high: SwingPoint | None = None
     last_low: SwingPoint | None = None
-    labeled_by_bar_index: dict[int, SwingPoint] = {}
+    # Keyed by (bar_index, swing_type), NOT bar_index alone. A single "outside"/
+    # wide-range bar can legitimately be both a swing HIGH candidate and a swing
+    # LOW candidate at once (detect_swings emits both as distinct points) — keying
+    # by bar_index alone collapsed those two distinct points onto one dict entry,
+    # silently discarding one and duplicating the other. That duplicate is what
+    # produced a literal duplicate (symbol, timeframe, ts, swing_type) row at
+    # persistence time — see tests/test_swings_and_structure.py for the repro.
+    labeled_by_key: dict[tuple[int, SwingType], SwingPoint] = {}
 
     for p in majors:
         if p.swing_type == SwingType.HIGH:
@@ -30,9 +37,9 @@ def label_structure(swing_points: list[SwingPoint]) -> list[SwingPoint]:
                 StructureLabel.HL if p.price > last_low.price else StructureLabel.LL
             )
             last_low = p
-        labeled_by_bar_index[p.bar_index] = replace(p, label=label)
+        labeled_by_key[(p.bar_index, p.swing_type)] = replace(p, label=label)
 
-    return [labeled_by_bar_index.get(p.bar_index, p) for p in ordered]
+    return [labeled_by_key.get((p.bar_index, p.swing_type), p) for p in ordered]
 
 
 def detect_swing_legs(swing_points: list[SwingPoint]) -> list[Swing]:
