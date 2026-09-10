@@ -299,3 +299,20 @@ def set_feature_flag(
         after_state={"enabled": enabled},
         reason=reason,
     )
+
+
+def get_service_role_client_for_backtest_ingestion() -> Client:
+    """Phase 5.0 §13/§14 — the ONLY sanctioned way for
+    scripts/ingest_historical_bars.py to obtain a service-role client.
+
+    Historical-bar bulk ingestion is an operator-run, server-side SCRIPT, not
+    a Streamlit-mediated admin action — there is no logged-in app user or
+    role to re-verify here (unlike every other function in this module).
+    This exists so the "only repository/admin_repository.py may import
+    repository/supabase_admin_client.py" rule stays true even for this
+    different (non-Streamlit-triggered) use case: the service-role key still
+    never becomes reachable from app/ or from any Streamlit session state —
+    only from a script that imports THIS function, never
+    `new_admin_client()` directly.
+    """
+    return new_admin_client()

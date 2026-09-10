@@ -1,16 +1,18 @@
 """Tests for repository/market_data.py's swing-point deduplication —
 regression coverage for the "ON CONFLICT DO UPDATE command cannot affect row
 a second time" bug (see also tests/test_swings_and_structure.py for the
-root-cause fix in engine.market_state.structure.label_structure)."""
+root-cause fix in engine.market_state.structure.label_structure). Also
+covers Phase 5.0 §4's `fetch_bars_range` (additive; `fetch_bars` itself is
+unmodified — see the dedicated regression section below)."""
 import pathlib
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from engine.market_state.opening_range import OpeningRangeEvaluation
 from engine.market_state.types import SwingPoint, SwingSignificance, SwingType
-from repository.market_data import dedupe_swing_rows, upsert_opening_range_event, upsert_swing_points
+from repository.market_data import dedupe_swing_rows, fetch_bars, fetch_bars_range, upsert_opening_range_event, upsert_swing_points
 
 
 def _pt(bar_index, swing_type, significance=SwingSignificance.MAJOR, score=0.9, price=100.0):
@@ -181,3 +183,180 @@ def test_upsert_opening_range_event_sends_an_int_opening_volume():
     assert isinstance(sent, int)
     assert not isinstance(sent, bool)
     assert sent == 1_832_485
+
+
+# ---- Phase 5.0 §4: fetch_bars_range (additive — fetch_bars is unmodified) ----
+
+
+class _FakeRangeQuery:
+    """Records every chained call so tests can assert BOTH the returned data
+    handling AND which columns/filters `fetch_bars_range` actually sent —
+    the closest thing to an "indexed query path" check available without a
+    live Postgres instance: `bars_symbol_tf_ts_idx` is (symbol, timeframe, ts
+    desc), so this asserts symbol/timeframe are filtered via `.eq()` and
+    ordering happens on `ts`, exactly the columns that index covers."""
+
+    def __init__(self, pages: list[list[dict]]):
+        self._pages = pages
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self._page_index = 0
+
+    def _record(self, name, *args, **kwargs):
+        self.calls.append((name, args, kwargs))
+        return self
+
+    def select(self, *a, **k):
+        return self._record("select", *a, **k)
+
+    def eq(self, *a, **k):
+        return self._record("eq", *a, **k)
+
+    def gte(self, *a, **k):
+        return self._record("gte", *a, **k)
+
+    def lte(self, *a, **k):
+        return self._record("lte", *a, **k)
+
+    def order(self, *a, **k):
+        return self._record("order", *a, **k)
+
+    def range(self, *a, **k):
+        self._record("range", *a, **k)
+        return self
+
+    def execute(self):
+        page = self._pages[self._page_index] if self._page_index < len(self._pages) else []
+        self._page_index += 1
+        return type("Res", (), {"data": page})()
+
+
+class _FakeRangeClient:
+    def __init__(self, pages: list[list[dict]]):
+        self.query = _FakeRangeQuery(pages)
+
+    def table(self, name):
+        assert name == "bars"
+        return self.query
+
+
+def _bar_row(ts, provider="alpaca", price=100.0):
+    return {"ts": ts, "open": price, "high": price + 1, "low": price - 1, "close": price, "volume": 500, "provider": provider}
+
+
+_RSTART = datetime(2024, 1, 2, tzinfo=timezone.utc)
+_REND = datetime(2024, 1, 3, tzinfo=timezone.utc)
+
+
+def test_fetch_bars_range_empty_result_is_empty_not_none():
+    client = _FakeRangeClient(pages=[[]])
+    df = fetch_bars_range(client, "SPY", "5min", _RSTART, _REND)
+    assert df is not None
+    assert df.empty
+    assert list(df.columns) == ["open", "high", "low", "close", "volume", "provider"]
+
+
+def test_fetch_bars_range_returns_chronological_order():
+    rows = [_bar_row("2024-01-02T09:40:00Z"), _bar_row("2024-01-02T09:30:00Z"), _bar_row("2024-01-02T09:35:00Z")]
+    client = _FakeRangeClient(pages=[rows])
+    df = fetch_bars_range(client, "SPY", "5min", _RSTART, _REND)
+    assert list(df.index) == sorted(df.index)  # re-sorted ascending regardless of row arrival order
+
+
+def test_fetch_bars_range_filters_by_symbol_and_timeframe_and_ts_bounds():
+    client = _FakeRangeClient(pages=[[_bar_row("2024-01-02T09:30:00Z")]])
+    fetch_bars_range(client, "SPY", "5min", _RSTART, _REND)
+    calls_by_name = [c[0] for c in client.query.calls]
+    assert "eq" in calls_by_name and "gte" in calls_by_name and "lte" in calls_by_name and "order" in calls_by_name
+    eq_args = [c[1] for c in client.query.calls if c[0] == "eq"]
+    assert ("symbol", "SPY") in eq_args
+    assert ("timeframe", "5min") in eq_args
+    order_args = [c[1] for c in client.query.calls if c[0] == "order"]
+    assert order_args and order_args[0][0] == "ts"  # ordered on the indexed ts column
+
+
+def test_fetch_bars_range_optional_provider_filter():
+    client = _FakeRangeClient(pages=[[_bar_row("2024-01-02T09:30:00Z", provider="synthetic")]])
+    fetch_bars_range(client, "SPY", "5min", _RSTART, _REND, provider="synthetic")
+    eq_args = [c[1] for c in client.query.calls if c[0] == "eq"]
+    assert ("provider", "synthetic") in eq_args
+
+
+def test_fetch_bars_range_no_provider_filter_by_default():
+    client = _FakeRangeClient(pages=[[_bar_row("2024-01-02T09:30:00Z")]])
+    fetch_bars_range(client, "SPY", "5min", _RSTART, _REND)
+    eq_args = [c[1] for c in client.query.calls if c[0] == "eq"]
+    assert not any(args and args[0] == "provider" for args in eq_args)
+
+
+def test_fetch_bars_range_paginates_past_the_default_page_size():
+    # Two full 1000-row pages + one partial page -> 2500 total rows, proving
+    # a multi-year range isn't silently truncated at PostgREST's 1000-row cap.
+    page1 = [_bar_row(f"2024-01-01T{(i % 24):02d}:00:00Z") for i in range(1000)]
+    page2 = [_bar_row(f"2024-01-02T{(i % 24):02d}:00:00Z") for i in range(1000)]
+    page3 = [_bar_row(f"2024-01-03T{(i % 24):02d}:00:00Z") for i in range(500)]
+    client = _FakeRangeClient(pages=[page1, page2, page3])
+    df = fetch_bars_range(client, "SPY", "5min", _RSTART, _REND)
+    assert len(df) == 2500
+    range_calls = [c[1] for c in client.query.calls if c[0] == "range"]
+    assert range_calls == [(0, 999), (1000, 1999), (2000, 2999)]
+
+
+def test_fetch_bars_range_stops_pagination_on_a_short_final_page():
+    client = _FakeRangeClient(pages=[[_bar_row("2024-01-02T09:30:00Z")]])  # 1 row < page size -> exactly one page
+    fetch_bars_range(client, "SPY", "5min", _RSTART, _REND)
+    range_calls = [c[1] for c in client.query.calls if c[0] == "range"]
+    assert range_calls == [(0, 999)]
+
+
+# ---- fetch_bars (existing, unmodified) — locks in current live-page behavior ----
+
+
+class _FakeFetchQuery:
+    def __init__(self, rows):
+        self._rows = rows
+        self.calls = []
+
+    def select(self, *a, **k):
+        self.calls.append(("select", a)); return self
+
+    def eq(self, *a, **k):
+        self.calls.append(("eq", a)); return self
+
+    def order(self, *a, **k):
+        self.calls.append(("order", a, k)); return self
+
+    def limit(self, *a, **k):
+        self.calls.append(("limit", a)); return self
+
+    def execute(self):
+        return type("Res", (), {"data": self._rows})()
+
+
+class _FakeFetchClient:
+    def __init__(self, rows):
+        self.query = _FakeFetchQuery(rows)
+
+    def table(self, name):
+        assert name == "bars"
+        return self.query
+
+
+def test_fetch_bars_unchanged_most_recent_n_semantics():
+    # No "provider" key here: a real Postgres `.select("ts,open,high,low,
+    # close,volume")` (what fetch_bars actually requests) would never return
+    # one — unlike fetch_bars_range's tests, this fake must mirror that.
+    rows = [{"ts": "2024-01-02T09:30:00Z", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 500}]
+    client = _FakeFetchClient(rows)
+    df = fetch_bars(client, "SPY", "5min", limit=50)
+    assert list(df.columns) == ["open", "high", "low", "close", "volume"]  # no "provider" column — unchanged shape
+    limit_calls = [c[1] for c in client.query.calls if c[0] == "limit"]
+    assert limit_calls == [(50,)]
+    order_calls = [c for c in client.query.calls if c[0] == "order"]
+    assert order_calls and order_calls[0][2] == {"desc": True}  # still most-recent-first at the query level
+
+
+def test_fetch_bars_empty_result_unchanged_shape():
+    client = _FakeFetchClient([])
+    df = fetch_bars(client, "SPY", "5min")
+    assert df.empty
+    assert list(df.columns) == ["open", "high", "low", "close", "volume"]

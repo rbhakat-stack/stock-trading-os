@@ -7,7 +7,7 @@ in supabase/migrations/0001_phase1_schema.sql for why, and when to change it.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 from supabase import Client
@@ -58,6 +58,63 @@ def fetch_bars(client: Client, symbol: str, timeframe: str, limit: int = 1000) -
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
     df = pd.DataFrame(rows)
     df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    return df.set_index("ts").sort_index()
+
+
+_RANGE_PAGE_SIZE = 1000  # PostgREST's own default row cap per request
+
+
+def fetch_bars_range(
+    client: Client, symbol: str, timeframe: str, start: datetime, end: datetime, provider: str | None = None,
+) -> pd.DataFrame:
+    """Phase 5.0 (§4) — the date-RANGE counterpart to `fetch_bars` above, for
+    historical replay/backtesting. Deliberately ADDITIVE: `fetch_bars`'s
+    "most recent N bars" semantics (used by every existing live page) are
+    UNCHANGED and this function is never called from live code paths.
+
+    Returns ALL matching rows in [start, end] inclusive, chronologically
+    ascending, paginating internally past PostgREST's default 1000-row cap
+    (a naive single `.execute()` would silently truncate a multi-year range)
+    — mirrors `upsert_bars`'s existing `batch_size` pagination pattern.
+    Columns include `provider` (unlike `fetch_bars`) so a caller can detect
+    synthetic/real data mixed under the same symbol/timeframe/range — see
+    engine/backtest/bar_source.py, which is the only intended caller.
+
+    Empty range -> an empty, correctly-typed, correctly-indexed DataFrame
+    (never None, never a KeyError on `.index`) so callers can treat "no
+    historical data for this range" as ordinary data, not an exception.
+    """
+    columns = ["ts", "open", "high", "low", "close", "volume", "provider"]
+    all_rows: list[dict] = []
+    offset = 0
+    while True:
+        q = (
+            client.table("bars")
+            .select(",".join(columns))
+            .eq("symbol", symbol)
+            .eq("timeframe", timeframe)
+            .gte("ts", start.isoformat())
+            .lte("ts", end.isoformat())
+        )
+        if provider is not None:
+            q = q.eq("provider", provider)
+        res = q.order("ts").range(offset, offset + _RANGE_PAGE_SIZE - 1).execute()
+        page = res.data or []
+        all_rows.extend(page)
+        if len(page) < _RANGE_PAGE_SIZE:
+            break
+        offset += _RANGE_PAGE_SIZE
+
+    if not all_rows:
+        df = pd.DataFrame(columns=[c for c in columns if c != "ts"])
+        df.index = pd.DatetimeIndex([], name="ts", tz="UTC")
+        return df
+
+    df = pd.DataFrame(all_rows)
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    # Chronological order is a stated contract (§4), not just an artifact of
+    # the query's own `.order("ts")` — re-sort defensively so a caller never
+    # has to trust that pagination preserved order across page boundaries.
     return df.set_index("ts").sort_index()
 
 
