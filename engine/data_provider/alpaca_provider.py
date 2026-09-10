@@ -2,6 +2,14 @@
 `alpaca-py` and ALPACA_API_KEY / ALPACA_SECRET_KEY. Imports of `alpaca` are
 deferred into methods so the rest of the app works even when the package or
 credentials aren't present (e.g. running fully on synthetic data).
+
+Phase 5.1P feed decision: IEX stays the feed (never auto-switched to SIP).
+IEX is acceptable for Phase 5 engineering/development. IEX-only statistical
+evidence remains PROVISIONAL for a final production trade recommendation,
+especially for volume-sensitive playbooks, thinner symbols, and RVOL-based
+evidence — IEX is one exchange's view, not the full consolidated tape. The
+provider abstraction (`engine.data_provider.base.MarketDataProvider`) is
+what lets SIP or another provider be substituted later without a rewrite.
 """
 from __future__ import annotations
 
