@@ -76,35 +76,29 @@ def resolve_pinned_definition(pin: PlaybookPin):
     (PlaybookVersionMismatchError) instead of silently substituting the
     registry's current version.
 
-    ARCHITECTURAL GAP (documented here, not worked around): engine/playbooks/
-    registry.py stores exactly ONE PlaybookDefinition per playbook_id — its
-    `version` field is metadata on that single definition, not part of a
-    lookup key (there is no `get_definition(playbook_id, version)`). There
-    is currently NO way to resolve a playbook version other than whatever is
-    presently registered. Building a second, parallel versioned-definition
-    store inside engine/backtest/ to paper over this would itself violate
-    §2's "no second implementation of playbook logic" — so this function
-    instead REFUSES a mismatched pin outright. Actually closing this gap (a
-    versioned definition store in engine/playbooks/registry.py) is Phase 4
-    work requiring separate, explicit approval — see the Phase 5.1 report.
+    Phase 5.2V RESOLVED the architectural gap this docstring used to
+    document: engine/playbooks/registry.py now stores every registered
+    version of a playbook_id, keyed by (playbook_id, version), with a
+    SEPARATE current-version pointer — see that module's own docstring.
+    This function does an EXACT versioned lookup (never "closest" or
+    "current"); an unregistered (playbook_id, version) pair, an unknown
+    playbook_id, or a NOT_IMPLEMENTABLE_YET definition all fail closed here,
+    identically to before. Requesting a pinned version that is NOT today's
+    current production version — the whole point of retrospective rule
+    evaluation (§2 of the Phase 5.2V task) — now resolves correctly instead
+    of being refused.
     """
     try:
-        definition = get_definition(pin.playbook_id)
+        definition = get_definition(pin.playbook_id, pin.playbook_version)
     except KeyError as exc:
         raise PlaybookVersionMismatchError(
-            f"{pin.playbook_id}: not a known playbook_id in the current engine.playbooks.registry."
+            f"{pin.playbook_id} v{pin.playbook_version}: not a known registered playbook_id+version pair "
+            "in engine.playbooks.registry."
         ) from exc
     if not definition.implementable:
         raise PlaybookVersionMismatchError(
-            f"{pin.playbook_id}: NOT_IMPLEMENTABLE_YET in the current registry "
+            f"{pin.playbook_id} v{pin.playbook_version}: NOT_IMPLEMENTABLE_YET "
             f"({definition.not_implementable_reason}) — cannot be replayed."
-        )
-    if definition.version != pin.playbook_version:
-        raise PlaybookVersionMismatchError(
-            f"{pin.playbook_id}: requested historical version {pin.playbook_version!r}, but the current "
-            f"registry only holds version {definition.version!r}. There is no way to resolve a NON-CURRENT "
-            "historical playbook version today — see resolve_pinned_definition's docstring for why this is a "
-            "genuine Phase 4 architectural gap, not something Phase 5.1 silently works around."
         )
     return definition
 

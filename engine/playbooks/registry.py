@@ -2,11 +2,38 @@
 entry per playbook this phase considered, implemented AND deferred. This is
 the ONLY place playbook metadata is declared; evaluators
 (engine/playbooks/evaluators/*.py) look their definition up from here by id.
+
+Phase 5.2V — VERSIONED STORAGE (§1-4): internally keyed by (playbook_id,
+version), with a separate CURRENT-version pointer per playbook_id. This is
+a storage/resolution change ONLY — no PlaybookDefinition field value for any
+currently-registered v1.0 (or v0.0 deferred) playbook changed. `get_definition
+(playbook_id)` — every existing live call site's exact shape — is completely
+unaffected: `version=None` resolves to the CURRENT pointer, byte-identical
+to pre-Phase-5.2V behavior. `all_definitions()`/`implementable_definitions()`/
+`enabled_definitions()` likewise return exactly the CURRENT definitions, in
+the same playbook_id insertion order as before — any additional historical
+or test-only version registered alongside a playbook_id is invisible to
+these three functions and to live evaluation.
 """
 from __future__ import annotations
 
 from .definition import PlaybookDefinition, QualityComponentConfig
 from .taxonomy import PlaybookFamily, PlaybookId
+
+
+class UnknownPlaybookError(KeyError):
+    """§3 — unknown playbook_id, fails closed."""
+
+
+class UnknownPlaybookVersionError(KeyError):
+    """§3 — a known playbook_id but an unregistered version, fails closed.
+    Never silently substituted for the current version."""
+
+
+class DuplicatePlaybookVersionError(ValueError):
+    """§3 — a (playbook_id, version) pair is immutable once registered.
+    Re-registering the same pair (accidentally editing an already-used
+    version in place) fails fast, at import time."""
 
 _STANDARD_QUALITY_COMPONENTS = (
     QualityComponentConfig("structure", "Structure", 20),
@@ -17,11 +44,48 @@ _STANDARD_QUALITY_COMPONENTS = (
     QualityComponentConfig("reward_risk", "Target quality", 20),
 )
 
-_DEFINITIONS: dict[str, PlaybookDefinition] = {}
+# playbook_id -> version -> PlaybookDefinition. Insertion order of playbook_id
+# (the outer dict) is preserved exactly as each is first registered — matches
+# pre-Phase-5.2V iteration order for all_definitions()/etc.
+_DEFINITIONS: dict[str, dict[str, PlaybookDefinition]] = {}
+_CURRENT_VERSION: dict[str, str] = {}  # playbook_id -> the CURRENT production version string
 
 
-def _register(d: PlaybookDefinition) -> None:
-    _DEFINITIONS[d.playbook_id] = d
+def _register(d: PlaybookDefinition, *, current: bool = True) -> None:
+    """`current=True` (every call below, for every live playbook) sets this
+    version as the CURRENT production pointer — exactly one per playbook_id,
+    explicit, never inferred from "most recently registered" or "highest
+    version string" (§2). `current=False` is for test-only ADDITIONAL
+    versions (see `register_definition_for_testing`) that must never affect
+    live evaluation."""
+    versions = _DEFINITIONS.setdefault(d.playbook_id, {})
+    if d.version in versions:
+        raise DuplicatePlaybookVersionError(
+            f"{d.playbook_id} v{d.version} is already registered — a playbook_id+version pair is immutable "
+            "once registered (§3 of the Phase 5.2V task). Bump the version instead of re-registering it."
+        )
+    versions[d.version] = d
+    if current:
+        _CURRENT_VERSION[d.playbook_id] = d.version
+
+
+def register_definition_for_testing(d: PlaybookDefinition) -> None:
+    """Phase 5.2V §6 test-only hook: registers an ADDITIONAL version for an
+    already-registered playbook_id WITHOUT touching the CURRENT pointer —
+    used to prove version-pinning correctness (e.g. a synthetic v1.1 that
+    coexists with the real v1.0) without ever releasing a production v1.1.
+    Pair with `unregister_definition_for_testing` in test teardown so no
+    test leaks registry state into another test."""
+    _register(d, current=False)
+
+
+def unregister_definition_for_testing(playbook_id: str, version: str) -> None:
+    versions = _DEFINITIONS.get(playbook_id)
+    if versions is None or version not in versions:
+        return
+    if _CURRENT_VERSION.get(playbook_id) == version:
+        raise ValueError(f"refusing to unregister {playbook_id} v{version} — it is the CURRENT production version")
+    del versions[version]
 
 
 _register(PlaybookDefinition(
@@ -333,17 +397,54 @@ _register(PlaybookDefinition(
 ))
 
 
-def get_definition(playbook_id: str) -> PlaybookDefinition:
-    return _DEFINITIONS[playbook_id]
+def get_definition(playbook_id: str, version: str | None = None) -> PlaybookDefinition:
+    """Backward compatible (§1/§4): `version=None` — every existing live
+    call site's exact shape — resolves to the CURRENT production version,
+    byte-identical to pre-Phase-5.2V behavior. An explicit `version` returns
+    EXACTLY that historical version, deterministically, or fails closed
+    (never inferred, never silently substituted for the current version)."""
+    versions = _DEFINITIONS.get(playbook_id)
+    if versions is None:
+        raise UnknownPlaybookError(f"unknown playbook_id: {playbook_id!r}")
+    resolved_version = version if version is not None else _CURRENT_VERSION[playbook_id]
+    if resolved_version not in versions:
+        raise UnknownPlaybookVersionError(
+            f"{playbook_id} has no registered version {resolved_version!r}; known versions: "
+            f"{sorted(versions)}"
+        )
+    return versions[resolved_version]
+
+
+def get_current_definition(playbook_id: str) -> PlaybookDefinition:
+    """§1 — explicit alias for get_definition(playbook_id) with no version,
+    for call sites (like Phase 5.1 replay's pin resolution) that want to
+    make "I mean CURRENT, not a pin" unambiguous in the reader's eyes."""
+    return get_definition(playbook_id)
+
+
+def get_current_version(playbook_id: str) -> str:
+    if playbook_id not in _CURRENT_VERSION:
+        raise UnknownPlaybookError(f"unknown playbook_id: {playbook_id!r}")
+    return _CURRENT_VERSION[playbook_id]
+
+
+def list_versions(playbook_id: str) -> tuple[str, ...]:
+    versions = _DEFINITIONS.get(playbook_id)
+    if versions is None:
+        raise UnknownPlaybookError(f"unknown playbook_id: {playbook_id!r}")
+    return tuple(sorted(versions))
 
 
 def all_definitions() -> tuple[PlaybookDefinition, ...]:
-    return tuple(_DEFINITIONS.values())
+    """Exactly the CURRENT definitions, one per registered playbook_id, in
+    playbook_id registration order — any additional historical/test-only
+    version is invisible here (§5)."""
+    return tuple(_DEFINITIONS[pid][_CURRENT_VERSION[pid]] for pid in _DEFINITIONS)
 
 
 def implementable_definitions() -> tuple[PlaybookDefinition, ...]:
-    return tuple(d for d in _DEFINITIONS.values() if d.implementable)
+    return tuple(d for d in all_definitions() if d.implementable)
 
 
 def enabled_definitions() -> tuple[PlaybookDefinition, ...]:
-    return tuple(d for d in _DEFINITIONS.values() if d.implementable and d.enabled)
+    return tuple(d for d in all_definitions() if d.implementable and d.enabled)
