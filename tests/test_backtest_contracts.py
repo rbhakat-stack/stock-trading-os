@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from engine.backtest.contracts import (
-    BacktestRunSpec, RunDataMode, StatisticalValidationResult, ValidationStatus,
+    BacktestRunSpec, PlaybookPin, RunDataMode, StatisticalValidationResult, ValidationStatus,
 )
 
 _START = datetime(2022, 1, 1, tzinfo=timezone.utc)
@@ -129,6 +129,14 @@ def test_entry_lifecycle_design_note_is_recorded_in_package_docstring():
     doc = engine.backtest.__doc__
     assert "ENTRY_ACTIVE" in doc
     assert "TRIGGERED -> ENTRY_ACTIVE -> FILLED" in doc
+
+
+def test_playbook_pin_requires_both_fields():
+    PlaybookPin("TREND_PULLBACK_LONG", "1.0")  # must not raise
+    with pytest.raises(ValueError):
+        PlaybookPin("", "1.0")
+    with pytest.raises(ValueError):
+        PlaybookPin("TREND_PULLBACK_LONG", "")
 
 
 def test_approved_backtest_principles_are_recorded_in_package_docstring():

@@ -109,3 +109,107 @@ class StatisticalValidationResult:
     run_id: str
 
     symbol: str | None = None              # None = pooled across the backtested universe; see §10
+
+
+# =============================================================================
+# Phase 5.1 additions — replay-specific contracts. Everything below IS
+# implemented/computed by engine/backtest/replay.py (unlike the Phase 5.0
+# contracts above, which were shapes only) — see that module for the engine.
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class PlaybookPin:
+    """§3 — one explicitly-pinned (playbook_id, playbook_version) pair. A
+    replay run is a list of these, never a bare list of playbook_ids — there
+    is no such thing as replaying "whatever version is current" in Phase 5.1;
+    see engine.backtest.replay.resolve_pinned_definition for the fail-closed
+    check this pin is validated against."""
+    playbook_id: str
+    playbook_version: str
+
+    def __post_init__(self) -> None:
+        if not self.playbook_id or not self.playbook_version:
+            raise ValueError("PlaybookPin requires both playbook_id and playbook_version")
+
+
+@dataclass(frozen=True)
+class HistoricalPlaybookEvaluation:
+    """§12 — one row of replay output: what Phase 4 would have said about
+    ONE pinned playbook, for ONE symbol/timeframe, AT one historical
+    timestamp. A row is only emitted on a setup_status TRANSITION (see
+    engine.backtest.replay's trigger-occurrence semantics, §5) — this is a
+    state-change log, not a per-bar snapshot dump.
+
+    Deliberately reuses engine.playbooks.evaluation.PlaybookEvaluation's own
+    field values (via `from_playbook_evaluation` in replay.py) rather than
+    recomputing anything — this dataclass exists only to ATTACH replay-time
+    context (symbol/timeframe/timestamp/run_id/regime/transition flag) that
+    PlaybookEvaluation itself has no reason to know about. No Streamlit or
+    Supabase dependency, matching every other contract in this module.
+    """
+    run_id: str
+    symbol: str
+    timeframe: str
+    timestamp: datetime
+
+    playbook_id: str
+    playbook_version: str
+    family: str
+    direction: str
+
+    eligibility_status: str
+    setup_status: str
+    quality_score: int | None
+    quality_band: str | None
+
+    entry_price: float | None
+    entry_zone_low: float | None
+    entry_zone_high: float | None
+    entry_type: str | None
+    stop_price: float | None
+    target1: float | None
+    target2: float | None
+
+    market_regime: str | None
+    volatility_regime: str | None
+    evidence: dict
+
+    is_new_trigger_occurrence: bool
+    data_quality_status: str               # "OK" | "DATA_QUALITY_FAILURE"
+
+
+@dataclass(frozen=True)
+class ReplayRunConfig:
+    """§13 — reproducibility metadata for ONE replay run. Captured once per
+    run and attached to every HistoricalPlaybookEvaluation's `run_id` it
+    produced (by reference, not by duplicating these fields onto every row).
+    No randomness is used anywhere in engine.backtest.replay — `random_seed`
+    exists only so a future Phase 5.2/5.3 caller that DOES introduce
+    randomness (e.g. bootstrap resampling) has somewhere honest to record it;
+    Phase 5.1 always leaves it None.
+    """
+    run_id: str
+    symbols: tuple[str, ...]
+    timeframe: str
+    higher_timeframes: tuple[str, ...]
+    date_range_start: datetime
+    date_range_end: datetime
+    historical_provider: str
+    adjustment_status: str
+    playbook_pins: tuple[PlaybookPin, ...]
+    min_rr: float
+    run_mode: str                          # a RunDataMode value
+    data_quality_policy: str
+    calendar_policy: str
+    git_commit_sha: str | None = None
+    code_version_tag: str | None = None
+    random_seed: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.symbols:
+            raise ValueError("ReplayRunConfig requires at least one symbol")
+        if not self.playbook_pins:
+            raise ValueError("ReplayRunConfig requires at least one PlaybookPin")
+        if self.date_range_end <= self.date_range_start:
+            raise ValueError("date_range_end must be after date_range_start")
