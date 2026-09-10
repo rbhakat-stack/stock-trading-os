@@ -24,6 +24,7 @@ from engine.risk.positions import (
     existing_signed_notional_for_symbol, existing_signed_quantity_for_symbol, normalize_position_input,
     resolve_positions_precedence,
 )
+from engine.playbooks.engine import detect_conflicts, evaluate_all_playbooks, rank_evaluations
 from engine.trade.decision import DECISION_CONDITIONAL, DECISION_QUALIFIED, DECISION_REJECT, DECISION_WAIT
 from engine.trade.planner import build_trade_plan
 from repository import market_data as md_repo
@@ -54,6 +55,89 @@ def _format_signed_shares(qty: float) -> str:
     if qty < 0:
         return f"{abs(qty):g} shares SHORT"
     return "0 shares (flat)"
+
+
+def _render_playbook_evaluation_detail(e) -> None:
+    """Renders the WHY THIS PLAYBOOK / PREREQUISITES / TRIGGER / DISQUALIFIERS
+    / SOFT CONCERNS / QUALITY BREAKDOWN / ENTRY / INVALIDATION-STOP / TARGETS
+    sections (§25) for one engine.playbooks.evaluation.PlaybookEvaluation —
+    shared by the PRIMARY PLAYBOOK section and each Alternative Playbooks
+    expander so the two can never drift apart in format. Display-only: reads
+    the already-computed evaluation, never recomputes anything."""
+    st.write(f"**Playbook status:** {e.setup_status}  ·  **Eligibility:** {e.eligibility_status}")
+
+    if e.reasons_for:
+        st.markdown("**WHY THIS PLAYBOOK**")
+        for r in e.reasons_for:
+            st.write(f"- {r}")
+
+    pcol1, pcol2 = st.columns(2)
+    with pcol1:
+        st.markdown("**PREREQUISITES**")
+        for item in e.prerequisites_satisfied:
+            st.write(f"✓ {item.label} — {item.observed_value}")
+        for item in e.prerequisites_missing:
+            st.write(f"✗ {item.label} — expected {item.expected_value}, observed {item.observed_value}")
+        if not e.prerequisites_satisfied and not e.prerequisites_missing:
+            st.caption("—")
+
+        st.markdown(f"**TRIGGER** ({'satisfied' if e.trigger_status else 'not satisfied'})")
+        for item in e.trigger_conditions_satisfied:
+            st.write(f"✓ {item.label} — {item.observed_value}")
+        for item in e.trigger_conditions_missing:
+            st.write(f"✗ {item.label} — expected {item.expected_value}, observed {item.observed_value}")
+        if not e.trigger_conditions_satisfied and not e.trigger_conditions_missing:
+            st.caption("—")
+    with pcol2:
+        st.markdown("**DISQUALIFIERS** (hard — reject this playbook)")
+        if e.disqualifiers:
+            for d in e.disqualifiers:
+                suffix = f" ({d.evidence_value})" if d.evidence_value else ""
+                st.write(f"- {d.description}{suffix}")
+        else:
+            st.caption("None triggered.")
+
+        st.markdown("**SOFT CONCERNS** (lower quality, never reject)")
+        if e.soft_concerns:
+            for sc in e.soft_concerns:
+                suffix = f" — {sc.evidence_value}" if sc.evidence_value else ""
+                st.write(f"- {sc.description} (severity {sc.severity:.2f}){suffix}")
+        else:
+            st.caption("None.")
+
+    if e.quality_breakdown is not None:
+        st.markdown(f"**QUALITY BREAKDOWN — {e.quality_score}/100 ({e.quality_band})**")
+        st.caption("Rule-based quality score — NOT a probability of profit, NOT a win rate.")
+        components = e.quality_breakdown.components
+        qcols = st.columns(max(len(components), 1))
+        for i, (_code, label, earned, mx) in enumerate(components):
+            qcols[i % len(qcols)].metric(label, f"{earned}/{mx}")
+
+    ecol1, ecol2, ecol3 = st.columns(3)
+    with ecol1:
+        st.markdown("**ENTRY**")
+        if e.entry_price is not None:
+            st.write(f"Price: {e.entry_price:.2f}")
+        if e.entry_zone_low is not None and e.entry_zone_high is not None:
+            st.write(f"Zone: {e.entry_zone_low:.2f} – {e.entry_zone_high:.2f}")
+        st.caption(e.entry_explanation or e.entry_type or "—")
+    with ecol2:
+        st.markdown("**INVALIDATION / STOP**")
+        if e.stop_price is not None:
+            st.write(f"Stop: {e.stop_price:.2f}")
+        st.caption(e.invalidation_reason or "—")
+    with ecol3:
+        st.markdown("**TARGETS**")
+        if e.target1 is not None:
+            rr_label = f"{e.rr1:.2f}" if e.rr1 is not None else "—"
+            st.write(f"T1: {e.target1:.2f} (RR {rr_label}) — {e.target1_source}")
+        if e.target2 is not None:
+            st.write(f"T2: {e.target2:.2f} — {e.target2_source}")
+        if e.target1 is None:
+            st.caption("No logical target — cannot be QUALIFIED.")
+
+    st.caption(e.manual_review_notes)
+    st.caption(f"Statistical validation: {e.statistical_validation_status}")
 
 
 def _get_provider():
@@ -866,23 +950,55 @@ with plan_tab:
                 existing_symbol_notional_signed = 0.0
                 existing_symbol_shares_signed = 0.0
 
+            _risk_policy_for_analysis = _current_risk_policy()
             plan = build_trade_plan(
                 market_snapshot, current_price=current_price,
-                risk_policy=_current_risk_policy(), account=effective_account,
+                risk_policy=_risk_policy_for_analysis, account=effective_account,
                 existing_symbol_notional_signed=existing_symbol_notional_signed,
                 existing_symbol_shares_signed=existing_symbol_shares_signed,
                 open_risk_complete=open_risk_complete,
             )
 
+            # Phase 4 (§16/§43): evaluate every enabled playbook against this
+            # SAME already-built market_snapshot — never a second market-data
+            # fetch or a second snapshot build per playbook. Purely a
+            # display/explainability layer: it is never read by build_trade_plan
+            # above and never changes plan/decision, which are fully computed
+            # using ONLY the Phase 3 engine (see engine/playbooks/__init__.py's
+            # architectural boundary note).
+            playbook_evaluations = evaluate_all_playbooks(
+                market_snapshot, current_price, min_rr=_risk_policy_for_analysis.min_rr, client=client,
+            )
+            # The PRIMARY PLAYBOOK is whichever evaluation's playbook_id
+            # matches plan.candidate.setup_type (Phase-3-computed, unchanged)
+            # — never independently selected — so the UI can never show a
+            # "primary" playbook that disagrees with what the actual Phase 3
+            # decision was computed for.
+            primary_playbook_eval = None
+            if plan.candidate is not None:
+                primary_playbook_eval = next(
+                    (e for e in playbook_evaluations if e.playbook_id == plan.candidate.setup_type), None,
+                )
+            playbook_conflict = detect_conflicts(playbook_evaluations)
+
         try:
             md_repo.upsert_symbol(client, symbol, name=None, exchange=None)
-            risk_repo.insert_trade_decision(client, user.id, symbol, timeframe, plan)
+            risk_repo.insert_trade_decision(
+                client, user.id, symbol, timeframe, plan,
+                playbook_id=primary_playbook_eval.playbook_id if primary_playbook_eval else None,
+                playbook_version=primary_playbook_eval.playbook_version if primary_playbook_eval else None,
+                playbook_family=primary_playbook_eval.family if primary_playbook_eval else None,
+            )
             logged = True
         except Exception:  # noqa: BLE001 - never show a raw traceback; the plan itself already computed fine
             logger.exception("Failed to log trade decision for %s/%s", symbol, timeframe)
             logged = False
 
-        st.session_state["trade_plan"] = {"plan": plan, "symbol": symbol, "timeframe": timeframe, "logged": logged}
+        st.session_state["trade_plan"] = {
+            "plan": plan, "symbol": symbol, "timeframe": timeframe, "logged": logged,
+            "playbook_evaluations": playbook_evaluations, "primary_playbook_eval": primary_playbook_eval,
+            "playbook_conflict": playbook_conflict,
+        }
 
     state = st.session_state.get("trade_plan")
     if not state or state["symbol"] != symbol or state["timeframe"] != timeframe:
@@ -890,6 +1006,9 @@ with plan_tab:
         st.stop()
 
     plan = state["plan"]
+    playbook_evaluations = state.get("playbook_evaluations") or []
+    primary_playbook_eval = state.get("primary_playbook_eval")
+    playbook_conflict = state.get("playbook_conflict")
     if not state["logged"]:
         st.warning("This plan could not be logged to your decision history. The analysis below is still valid.")
 
@@ -905,6 +1024,16 @@ with plan_tab:
     elif decision == DECISION_QUALIFIED:
         st.success("**DECISION: QUALIFIED**")
         st.error("**MANUAL REVIEW REQUIRED — this system never places or recommends placing an order.**")
+
+    if playbook_conflict is not None:
+        st.warning(
+            f"**PLAYBOOK CONFLICT** — {playbook_conflict.reason} "
+            f"LONG: {playbook_conflict.long_candidate.name} (TRIGGERED, quality "
+            f"{playbook_conflict.long_candidate.quality_score}/100). "
+            f"SHORT: {playbook_conflict.short_candidate.name} (TRIGGERED, quality "
+            f"{playbook_conflict.short_candidate.quality_score}/100). "
+            f"Neither side has been silently discarded — review both before proceeding."
+        )
 
     if plan.candidate is not None:
         c = plan.candidate
@@ -935,6 +1064,44 @@ with plan_tab:
             st.write("**CONDITIONS TO WAIT FOR:**")
             for r in c.conditions_to_wait_for:
                 st.write(f"- {r}")
+
+    # ---------------------------------------------------------------------
+    # Phase 4 (§25-27) — PRIMARY PLAYBOOK + Alternative Playbooks. Purely a
+    # display layer over playbook_evaluations, already computed once at
+    # Analyze time (see the analyze block above) — nothing here recomputes
+    # anything or feeds back into plan/decision above.
+    # ---------------------------------------------------------------------
+    if primary_playbook_eval is not None:
+        st.subheader(
+            f"PRIMARY PLAYBOOK: {primary_playbook_eval.name} "
+            f"(v{primary_playbook_eval.playbook_version} · {primary_playbook_eval.family.replace('_', ' ')})"
+        )
+        # §26 — the playbook's own lifecycle status is a SEPARATE concept
+        # from the Trade Decision above; a TRIGGERED playbook can still be
+        # REJECTed by a Phase 3 account/risk gate (e.g. MAX_POSITIONS_REACHED)
+        # — both must remain simultaneously visible, never conflated.
+        st.caption(
+            f"Playbook status **{primary_playbook_eval.setup_status}** is separate from Trade Decision "
+            f"**{decision}** above — e.g. a TRIGGERED playbook can still be REJECTed by an account/risk gate; "
+            "that is expected, not a bug."
+        )
+        _render_playbook_evaluation_detail(primary_playbook_eval)
+    elif plan.candidate is not None:
+        st.caption("No matching Phase 4 playbook evaluation was found for this setup type.")
+
+    st.subheader("Alternative Playbooks")
+    if playbook_evaluations:
+        alternatives = [
+            e for e in rank_evaluations(playbook_evaluations)
+            if primary_playbook_eval is None or e.playbook_id != primary_playbook_eval.playbook_id
+        ]
+        st.caption(f"{len(alternatives)} other playbook(s) evaluated against this same snapshot.")
+        for e in alternatives:
+            quality_suffix = f" · quality {e.quality_score}/100" if e.quality_score is not None else ""
+            with st.expander(f"{e.name} — {e.direction} · {e.setup_status}{quality_suffix}"):
+                _render_playbook_evaluation_detail(e)
+    else:
+        st.caption("No playbook evaluations available for this analysis.")
 
     if plan.quality is not None:
         st.subheader("Trade Quality Score")

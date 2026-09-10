@@ -63,7 +63,10 @@ def upsert_account_risk_state(client: Client, user_id: str, account: AccountRisk
     client.table("account_risk_states").upsert(row, on_conflict="user_id").execute()
 
 
-def build_trade_decision_row(user_id: str, symbol: str, timeframe: str, plan: TradePlanningSnapshot) -> dict:
+def build_trade_decision_row(
+    user_id: str, symbol: str, timeframe: str, plan: TradePlanningSnapshot,
+    playbook_id: str | None = None, playbook_version: str | None = None, playbook_family: str | None = None,
+) -> dict:
     """Pure mapping from a TradePlanningSnapshot to the trade_decisions row
     shape — separated from insert_trade_decision so persistence semantics
     (which field survives for which decision outcome) are unit-testable
@@ -73,7 +76,14 @@ def build_trade_decision_row(user_id: str, symbol: str, timeframe: str, plan: Tr
     target all come from plan-level fields (always set once a candidate is
     TRIGGERED, regardless of what the decision engine then does with it),
     while no_trade_reasons/position_size are genuinely decision-scoped (no
-    equivalent plan-level field exists — sizing may legitimately never run)."""
+    equivalent plan-level field exists — sizing may legitimately never run).
+
+    Phase 4 (§24/§46): playbook_id/playbook_version/playbook_family are
+    OPTIONAL, default None — every pre-Phase-4 call site (and every existing
+    Phase 3 test) keeps working unchanged, and existing persisted rows with
+    these columns NULL remain valid forever. Only app/pages/trade_planner.py's
+    Analyze flow, once it looks up the matching PlaybookEvaluation for
+    plan.candidate.setup_type, passes them."""
     decision = plan.decision
     candidate = plan.candidate
     targets = plan.targets
@@ -127,12 +137,28 @@ def build_trade_decision_row(user_id: str, symbol: str, timeframe: str, plan: Tr
             "candidate_evidence": candidate.evidence if candidate else None,
         },
         "as_of": plan.as_of.isoformat() if plan.as_of else None,
+        "playbook_id": playbook_id,
+        "playbook_version": playbook_version,
+        "playbook_family": playbook_family,
     }
 
 
-def insert_trade_decision(client: Client, user_id: str, symbol: str, timeframe: str, plan: TradePlanningSnapshot) -> None:
-    row = build_trade_decision_row(user_id, symbol, timeframe, plan)
-    client.table("trade_decisions").insert(row).execute()
+def insert_trade_decision(
+    client: Client, user_id: str, symbol: str, timeframe: str, plan: TradePlanningSnapshot,
+    playbook_id: str | None = None, playbook_version: str | None = None, playbook_family: str | None = None,
+) -> None:
+    row = build_trade_decision_row(user_id, symbol, timeframe, plan, playbook_id, playbook_version, playbook_family)
+    try:
+        client.table("trade_decisions").insert(row).execute()
+    except Exception:
+        # migration 0007 may not be applied yet (playbook_id/_version/_family
+        # columns don't exist) — retry once without those three keys rather
+        # than losing the whole decision log entry. Never silently swallow
+        # any OTHER failure; re-raise if the retry also fails.
+        if playbook_id is None and playbook_version is None and playbook_family is None:
+            raise
+        fallback_row = {k: v for k, v in row.items() if k not in ("playbook_id", "playbook_version", "playbook_family")}
+        client.table("trade_decisions").insert(fallback_row).execute()
 
 
 def list_trade_decisions(client: Client, user_id: str, limit: int = 50) -> list[dict]:

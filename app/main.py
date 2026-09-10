@@ -32,6 +32,7 @@ account_page = st.Page("pages/account.py", title="Account", icon=":material/pers
 dashboard_page = st.Page("pages/dashboard.py", title="Dashboard", icon=":material/dashboard:", default=True)
 market_reader_page = st.Page("pages/market_reader.py", title="Market Reader", icon=":material/candlestick_chart:")
 trade_planner_page = st.Page("pages/trade_planner.py", title="Trade Planner", icon=":material/rule:")
+playbooks_page = st.Page("pages/playbooks.py", title="Playbooks", icon=":material/menu_book:")
 admin_dashboard_page = st.Page("pages/admin_dashboard.py", title="Admin Dashboard", icon=":material/shield_person:")
 admin_users_page = st.Page("pages/admin_users.py", title="Users", icon=":material/group:")
 admin_user_detail_page = st.Page("pages/admin_user_detail.py", title="User Detail", icon=":material/person_search:")
@@ -43,7 +44,7 @@ admin_system_controls_page = st.Page(
 if not config_ok:
     nav = st.navigation([setup_page])
 elif st.session_state.get("user"):
-    pages = {"Account": [account_page], "Workspace": [dashboard_page, market_reader_page, trade_planner_page]}
+    pages = {"Account": [account_page], "Workspace": [dashboard_page, market_reader_page, trade_planner_page, playbooks_page]}
 
     # Nav visibility is UX only — every admin page independently re-checks
     # authorization itself (see app/authorization.py), so a mistake or staleness
