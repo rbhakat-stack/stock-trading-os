@@ -18,6 +18,7 @@ from datetime import datetime
 from engine.data_integrity.checks import check_bars, has_failure
 
 from .bar_source import AdjustmentStatus, DataProvenance, classify_provider_data_type
+from .calendar import filter_to_regular_trading_hours
 
 logger = logging.getLogger("trading_os.backtest.ingestion")
 
@@ -41,6 +42,24 @@ class IngestionResult:
     attempts: int = 0
 
 
+def _resolve_adjustment_status(adjustment: str | None) -> AdjustmentStatus:
+    """Phase 5.1P §Part A-2 — `adjustment_status` is derived ONLY from what
+    the CALLER explicitly declared it requested (never inferred from
+    provider name — a caller must say "I asked for split" for this to ever
+    read SPLIT_ADJUSTED). `adjustment=None` (nothing explicitly requested)
+    preserves the exact pre-Phase-5.1P default of UNKNOWN. `adjustment="raw"`
+    stamps RAW: real Alpaca validation empirically proved raw is genuinely
+    unadjusted, so this is an honest, verified claim, not a guess. Any other
+    explicit value that isn't "split" also stays UNKNOWN — fail-closed
+    rather than a guessed status for a mode this function doesn't recognize.
+    """
+    if adjustment == "split":
+        return AdjustmentStatus.SPLIT_ADJUSTED
+    if adjustment == "raw":
+        return AdjustmentStatus.RAW
+    return AdjustmentStatus.UNKNOWN
+
+
 def ingest_symbol_range(
     client,
     provider,
@@ -51,6 +70,8 @@ def ingest_symbol_range(
     end: datetime,
     max_retries: int = DEFAULT_MAX_RETRIES,
     backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    adjustment: str | None = None,
+    filter_regular_trading_hours: bool = False,
 ) -> IngestionResult:
     """Fetches `[start, end)` bars for one symbol/timeframe from `provider`
     (an engine.data_provider-shaped object — SyntheticProvider or
@@ -68,9 +89,23 @@ def ingest_symbol_range(
     provider already returned, so this fails closed on the first such
     result instead of retrying a call doomed to fail the same way again.
 
-    `adjustment_status` is always stamped UNKNOWN (§7) — neither current
-    provider reports split-adjustment, and this function must not pretend
-    otherwise.
+    `adjustment` (Phase 5.1P, §Part A-2) is None by default — omitted
+    entirely from the `provider.get_ohlcv` call, exactly as before this
+    round, so every existing caller (including test doubles with a
+    4-argument `get_ohlcv`) is completely unaffected. Pass e.g. "split" to
+    explicitly request Alpaca's split-adjusted historical mode; see
+    `_resolve_adjustment_status` for how this maps to `AdjustmentStatus`.
+
+    `filter_regular_trading_hours` (Phase 5.1P, §Part A-1) is False by
+    default — exactly preserving this function's pre-Phase-5.1P behavior for
+    every existing caller/test double. Pass True for real intraday market
+    data (see `engine.backtest.calendar.filter_to_regular_trading_hours`) to
+    strip pre-market/after-hours bars at this, the historical ingestion
+    boundary. Deliberately an explicit, caller-declared flag rather than
+    something inferred from `provider_name` — a "provider_name=alpaca" test
+    double is not necessarily session-shaped real data, and this function
+    must not guess. No-op for `1day` bars (a session-time-of-day filter is
+    meaningless for daily bars) regardless of this flag.
     """
     if timeframe not in _TIMEFRAME_MINUTES:
         return IngestionResult(
@@ -91,7 +126,10 @@ def ingest_symbol_range(
     for attempt in range(1, max_retries + 1):
         attempts = attempt
         try:
-            df = provider.get_ohlcv(symbol, timeframe, start, end)
+            df = (
+                provider.get_ohlcv(symbol, timeframe, start, end, adjustment=adjustment)
+                if adjustment is not None else provider.get_ohlcv(symbol, timeframe, start, end)
+            )
             last_error = None
             break
         except Exception as exc:  # noqa: BLE001 - any provider-call failure is retryable, logged, never silent
@@ -110,13 +148,21 @@ def ingest_symbol_range(
             error=f"provider call failed after {attempts} attempt(s): {last_error}", attempts=attempts,
         )
 
+    # §Part A-1 — strip pre-market/after-hours bars at this, the historical
+    # ingestion boundary, only when the caller explicitly opted in (see
+    # docstring above for why this is never inferred from provider_name).
+    if not df.empty and filter_regular_trading_hours and _TIMEFRAME_MINUTES[timeframe] < _TIMEFRAME_MINUTES["1day"]:
+        df = filter_to_regular_trading_hours(df)
+
+    adjustment_status = _resolve_adjustment_status(adjustment)
+
     if df.empty:
         return IngestionResult(
             symbol=symbol, timeframe=timeframe, provider_name=provider_name, requested_start=start,
             requested_end=end, success=True, bar_count=0,
             provenance=DataProvenance(
                 provider=provider_name, data_type=classify_provider_data_type(provider_name),
-                adjustment_status=AdjustmentStatus.UNKNOWN, symbol=symbol, timeframe=timeframe,
+                adjustment_status=adjustment_status, symbol=symbol, timeframe=timeframe,
                 range_start=start, range_end=end, bar_count=0,
             ),
             attempts=attempts,
@@ -139,7 +185,7 @@ def ingest_symbol_range(
 
     provenance = DataProvenance(
         provider=provider_name, data_type=classify_provider_data_type(provider_name),
-        adjustment_status=AdjustmentStatus.UNKNOWN, symbol=symbol, timeframe=timeframe,
+        adjustment_status=adjustment_status, symbol=symbol, timeframe=timeframe,
         range_start=start, range_end=end, bar_count=len(df),
     )
     return IngestionResult(

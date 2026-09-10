@@ -32,7 +32,7 @@ from .breakouts import BreakoutEvaluation, classify_breakout
 from .consolidation import ConsolidationEvaluation, evaluate_consolidation
 from .opening_range import OpeningRangeEvaluation, compute_opening_range
 from .structure import label_structure
-from .support_resistance import EnrichedZone, build_zones, enrich_zones
+from .support_resistance import EnrichedZone, build_zones, enrich_zones, enrich_zones_fast
 from .swings import detect_swings
 from .time_of_day import classify_time_of_day
 from .timeframe import MultiTimeframeAlignment, compute_multi_timeframe_alignment
@@ -40,7 +40,7 @@ from .trend import classify_trend
 from .trend_quality import TrendQualityEvaluation, classify_trend_quality
 from .types import MarketState, MarketStateEvent, SwingPoint
 from .volatility_regime import VolatilityClassification, classify_volatility
-from .volume import RvolResult, average_volume, classify_volume_level, compute_rvol
+from .volume import RvolResult, average_volume, classify_volume_level, compute_rvol, compute_rvol_fast
 
 ALGORITHM_VERSION = "market-intelligence-v1"
 
@@ -132,17 +132,38 @@ def build_snapshot(
     opening_range_minutes: int = 30,
     higher_timeframe_data: dict[str, pd.DataFrame] | None = None,
     now: pd.Timestamp | None = None,
+    use_optimized_computation: bool = False,
 ) -> MarketIntelligenceSnapshot:
     """`higher_timeframe_data` maps a timeframe label (e.g. "1hour") to bars the
     CALLER already fetched — this module never fetches data itself, keeping
-    engine/ free of data_provider/Streamlit/Supabase imports."""
+    engine/ free of data_provider/Streamlit/Supabase imports.
+
+    `use_optimized_computation` (Phase 5.1P §Part B) is False by default —
+    every existing caller (live Market Reader, Trade Planner, the Phase 5.1
+    REFERENCE replay path) is completely unaffected and computes exactly as
+    before this round; this is the GOLDEN CORRECTNESS ORACLE and stays
+    untouched. When True, this function uses implementation-equivalent (not
+    approximate) faster paths for the specific sub-computations profiling
+    identified as dominant (`enrich_zones_fast`, `compute_rvol_fast`, and
+    passing an already-computed `atr_series` into `detect_swings` instead of
+    letting it redundantly recompute the identical series) — every other
+    computation (swing candidate generation/dedup/scoring, the trend FSM,
+    BOS/CHOCH, breakout classification, consolidation, opening range,
+    multi-timeframe alignment) is IDENTICAL code either way. See
+    tests/test_phase51p_optimized_market_state.py for the exhaustive
+    per-prefix equivalence proof that `use_optimized_computation=True`
+    produces byte-identical `MarketIntelligenceSnapshot` output to the
+    default path, for the same `df`/`now`.
+    """
     issues = check_bars(df, timeframe_minutes=timeframe_minutes, now=now)
     if has_failure(issues):
         return _failed_snapshot(symbol, timeframe, data_source, issues)
     warnings = [f"{i.code}: {i.message}" for i in issues if i.severity == "WARNING"]
 
     atr_series = atr(df, period=atr_period)
-    swing_points = label_structure(detect_swings(df))
+    swing_points = label_structure(
+        detect_swings(df, atr_series=atr_series if use_optimized_computation else None)
+    )
     events = classify_trend(df, swing_points)
     latest_state = events[-1].state if events else MarketState.RANGE
 
@@ -163,7 +184,10 @@ def build_snapshot(
 
     latest_atr_for_zones = float(atr_series.dropna().iloc[-1]) if atr_series.notna().any() else 1.0
     raw_zones = build_zones(swing_points, latest_atr_for_zones)
-    enriched = enrich_zones(df, raw_zones, atr_series)
+    enriched = (
+        enrich_zones_fast(df, raw_zones, atr_series) if use_optimized_computation
+        else enrich_zones(df, raw_zones, atr_series)
+    )
     support_zones = [z for z in enriched if z.zone_type == "SUPPORT"]
     resistance_zones = [z for z in enriched if z.zone_type == "RESISTANCE"]
 
@@ -183,7 +207,7 @@ def build_snapshot(
     current_vol = float(df["volume"].iloc[last_idx])
     avg20 = average_volume(df, 20).iloc[last_idx]
     volume_level = classify_volume_level(current_vol, float(avg20) if pd.notna(avg20) else None)
-    rvol = compute_rvol(df, last_idx)
+    rvol = compute_rvol_fast(df, last_idx) if use_optimized_computation else compute_rvol(df, last_idx)
 
     volatility = classify_volatility(atr_series, last_idx)
 

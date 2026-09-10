@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 
 from .types import SwingPoint, SwingSignificance, SwingType
@@ -189,6 +190,119 @@ def enrich_zones(
     """Scans the full bar history against each zone from `build_zones` to compute
     touch/rejection/break/retest counts and role-reversal history."""
     return [_enrich_one_zone(df, zone, atr_series, proximity_atr) for zone in zones]
+
+
+def _enrich_one_zone_fast(df: pd.DataFrame, zone: dict, atr_series: pd.Series, proximity_atr: float) -> EnrichedZone:
+    """Phase 5.1P §Part B — implementation-equivalent optimization of
+    `_enrich_one_zone`: PROFILING (not assumption) showed this function's
+    per-bar `.iloc[]` scalar access accounted for ~94% of a full historical
+    replay's total time — not `detect_swings`/`classify_trend` as originally
+    suspected. Every access pattern, branch, and the exact order operations
+    happen in is IDENTICAL to `_enrich_one_zone`; the only change is reading
+    from plain numpy arrays (extracted once, up front) instead of repeatedly
+    calling pandas' `Series.iloc[i]` (which carries substantial per-call
+    overhead — isinstance checks, index/box reconstruction — verified via
+    cProfile, see the Phase 5.1P report §H). This produces byte-identical
+    output to `_enrich_one_zone`; see
+    tests/test_phase51p_optimized_market_state.py for the exhaustive proof.
+    `_enrich_one_zone` itself is UNTOUCHED and remains the golden reference.
+    """
+    upper = zone["upper_boundary"]
+    lower = zone["lower_boundary"]
+
+    touch_count = 0
+    rejection_count = 0
+    break_count = 0
+    retest_count = 0
+    last_touch_time = None
+    role_reversal_history: list[RoleReversalEvent] = []
+    current_type = zone["zone_type"]
+
+    atr_fallback = atr_series.dropna().mean()
+    atr_fallback = float(atr_fallback) if atr_fallback and atr_fallback > 0 else 1.0
+
+    def _is_break_move(zone_type: str, close_val: float, buffer: float) -> bool:
+        return (close_val > upper + buffer) if zone_type == "RESISTANCE" else (close_val < lower - buffer)
+
+    def _is_retreat_move(zone_type: str, close_val: float, buffer: float) -> bool:
+        return (close_val < lower - buffer) if zone_type == "RESISTANCE" else (close_val > upper + buffer)
+
+    highs = df["high"].to_numpy()
+    lows = df["low"].to_numpy()
+    closes = df["close"].to_numpy()
+    atr_vals = atr_series.to_numpy()
+    index = df.index
+    n = len(df)
+
+    first_atr = atr_vals[0]
+    first_buffer = proximity_atr * (first_atr if not np.isnan(first_atr) and first_atr > 0 else atr_fallback)
+    first_close = float(closes[0])
+    broken = _is_break_move(current_type, first_close, first_buffer)
+
+    for i in range(n):
+        atr_val = atr_vals[i]
+        if np.isnan(atr_val) or atr_val <= 0:
+            atr_val = atr_fallback
+        buffer = proximity_atr * atr_val
+
+        high = float(highs[i])
+        low = float(lows[i])
+        close = float(closes[i])
+
+        touches_band = (high >= lower - buffer) and (low <= upper + buffer)
+        counted_touch = False
+
+        if not broken:
+            if _is_break_move(current_type, close, buffer):
+                break_count += 1
+                broken = True
+                counted_touch = True
+            elif touches_band:
+                rejection_count += 1
+                counted_touch = True
+        else:
+            if _is_retreat_move(current_type, close, buffer):
+                broken = False
+            elif not _is_break_move(current_type, close, buffer):
+                retest_count += 1
+                counted_touch = True
+                new_type = "SUPPORT" if current_type == "RESISTANCE" else "RESISTANCE"
+                if current_type != new_type:
+                    role_reversal_history.append(
+                        RoleReversalEvent(ts=index[i], from_type=current_type, to_type=new_type)
+                    )
+                    current_type = new_type
+
+        if counted_touch or touches_band:
+            touch_count += 1
+            last_touch_time = index[i]
+
+    return EnrichedZone(
+        zone_type=current_type,
+        upper_boundary=upper,
+        lower_boundary=lower,
+        strength_score=zone.get("strength_score", 0.0),
+        touch_count=touch_count,
+        rejection_count=rejection_count,
+        break_count=break_count,
+        retest_count=retest_count,
+        last_touch_time=last_touch_time,
+        role_reversal_history=role_reversal_history,
+        source_bar_indices=zone.get("source_bar_indices", []),
+        evidence={"proximity_atr": proximity_atr},
+    )
+
+
+def enrich_zones_fast(
+    df: pd.DataFrame,
+    zones: list[dict],
+    atr_series: pd.Series,
+    proximity_atr: float = DEFAULT_TOUCH_PROXIMITY_ATR,
+) -> list[EnrichedZone]:
+    """Phase 5.1P §Part B optimized counterpart to `enrich_zones` — see
+    `_enrich_one_zone_fast`. Purely additive; `enrich_zones` is unchanged and
+    remains what every existing caller uses by default."""
+    return [_enrich_one_zone_fast(df, zone, atr_series, proximity_atr) for zone in zones]
 
 
 def rank_zones_by_relevance(zones: list[EnrichedZone], current_price: float) -> list[EnrichedZone]:

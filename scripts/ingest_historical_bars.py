@@ -58,9 +58,21 @@ def main(argv: list[str] | None = None) -> int:
     client = get_service_role_client_for_backtest_ingestion()
     provider = _get_provider(args.provider)
 
+    # Phase 5.1P §Part A-2 — Phase 5 historical statistical validation policy:
+    # real (Alpaca) ingestion always explicitly requests split-adjusted bars,
+    # so historical splits never appear as artificial price discontinuities
+    # to swing/trend/BOS/breakout/S-R logic. Synthetic data has no splits, so
+    # it passes no adjustment at all (preserves its pre-existing UNKNOWN
+    # provenance exactly).
+    adjustment = "split" if args.provider == "alpaca" else None
+    filter_rth = args.provider == "alpaca"
+
     exit_code = 0
     for symbol in args.symbols:
-        result = ingest_symbol_range(client, provider, args.provider, symbol, args.timeframe, start, end)
+        result = ingest_symbol_range(
+            client, provider, args.provider, symbol, args.timeframe, start, end,
+            adjustment=adjustment, filter_regular_trading_hours=filter_rth,
+        )
         status = "OK" if result.success else "FAILED"
         print(f"[{status}] {symbol}/{args.timeframe}: {result.bar_count} bars, {result.attempts} attempt(s)")
         for issue in result.data_quality_issues:

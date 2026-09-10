@@ -329,13 +329,21 @@ def run_replay(
     allow_unverified_adjustment: bool = False,
     enforce_session_integrity: bool = True,
     use_resample_cache: bool = False,
+    use_optimized_market_state: bool = False,
     data_source: str | None = None,
     git_commit_sha: str | None = None,
     code_version_tag: str | None = None,
 ) -> ReplayResult:
-    """The Phase 5.1 replay entry point. `use_resample_cache=False`
-    (default) is the REFERENCE path; `True` is the OPTIMIZED path — see the
-    module docstring. Every other argument behaves identically either way.
+    """The Phase 5.1/5.1P replay entry point. `use_resample_cache=False` and
+    `use_optimized_market_state=False` (both default) is the REFERENCE path
+    — see the module docstring. Either flag independently set to `True`
+    enables its own OPTIMIZED behavior; `use_optimized_market_state=True`
+    (Phase 5.1P §Part B) calls `build_snapshot(..., use_optimized_computation=
+    True)`, which uses implementation-equivalent (not approximate) faster
+    paths for the sub-computations profiling identified as dominant — see
+    `engine.market_state.market_intelligence.build_snapshot`'s docstring and
+    tests/test_phase51p_optimized_market_state.py for the equivalence proof.
+    Every other argument behaves identically regardless of either flag.
     """
     if timeframe not in _TIMEFRAME_MINUTES:
         raise ValueError(f"unsupported timeframe: {timeframe!r}")
@@ -416,6 +424,7 @@ def run_replay(
             symbol=symbol, timeframe=timeframe, df=df_visible, data_source=data_source or provenance.provider,
             timeframe_minutes=timeframe_minutes, atr_period=atr_period, opening_range_minutes=opening_range_minutes,
             higher_timeframe_data=higher_tf_data or None, now=cursor_ts,
+            use_optimized_computation=use_optimized_market_state,
         )
         bars_evaluated += 1
         if not snapshot.data_quality_ok:

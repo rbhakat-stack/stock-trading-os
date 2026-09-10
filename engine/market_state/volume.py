@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+import numpy as np
 import pandas as pd
 
 VERY_LOW_MAX = 0.5
@@ -91,6 +92,70 @@ def compute_rvol(
 
     if len(seen_dates) >= MIN_DAYS_FOR_TIME_OF_DAY_RVOL and same_time_vols:
         baseline = sum(same_time_vols) / len(same_time_vols)
+        method = "TIME_OF_DAY_BASELINE"
+        evidence = {"denominator_bars": len(same_time_vols), "trading_days_used": len(seen_dates)}
+    elif bar_index >= MIN_BARS_FOR_ROLLING_RVOL:
+        window_vols = df["volume"].iloc[max(0, bar_index - MIN_BARS_FOR_ROLLING_RVOL) : bar_index]
+        baseline = float(window_vols.mean())
+        method = "ROLLING_20_BAR"
+        evidence = {"denominator_bars": MIN_BARS_FOR_ROLLING_RVOL}
+    else:
+        return RvolResult(
+            value=None,
+            method="INSUFFICIENT_DATA",
+            baseline=None,
+            evidence={
+                "reason": (
+                    f"fewer than {MIN_BARS_FOR_ROLLING_RVOL} prior bars and fewer than "
+                    f"{MIN_DAYS_FOR_TIME_OF_DAY_RVOL} prior trading days at this time-of-day"
+                )
+            },
+        )
+
+    if baseline <= 0:
+        return RvolResult(value=None, method="INSUFFICIENT_DATA", baseline=baseline, evidence={"reason": "baseline volume is zero"})
+
+    return RvolResult(value=round(current_vol / baseline, 3), method=method, baseline=round(baseline, 1), evidence=evidence)
+
+
+def compute_rvol_fast(
+    df: pd.DataFrame,
+    bar_index: int,
+    time_of_day_tolerance_minutes: int = TIME_OF_DAY_TOLERANCE_MINUTES,
+) -> RvolResult:
+    """Phase 5.1P §Part B — implementation-equivalent optimization of
+    `compute_rvol`: the reference version's time-of-day baseline search is a
+    pure-Python `for i in range(bar_index)` loop with per-iteration
+    `.iloc[]`/`Timestamp` access, re-run from bar 0 at every replay step —
+    profiling identified this as a real, if secondary, cost center. This
+    version vectorizes the identical same-time-of-day search with numpy over
+    the array-form of the same inputs; every comparison, tie-break, and
+    fallback rule is unchanged from `compute_rvol`. See
+    tests/test_phase51p_optimized_market_state.py for the exhaustive
+    per-prefix equivalence proof. `compute_rvol` itself is untouched.
+    """
+    current_vol = float(df["volume"].iloc[bar_index])
+    ts = df.index[bar_index]
+    target_minutes = ts.hour * 60 + ts.minute
+
+    if bar_index > 0:
+        prior_index = df.index[:bar_index]
+        prior_minutes = (prior_index.hour * 60 + prior_index.minute).to_numpy()
+        prior_dates = prior_index.date
+        prior_volumes = df["volume"].to_numpy()[:bar_index]
+
+        same_day_mask = prior_dates == ts.date()
+        same_time_mask = np.abs(prior_minutes - target_minutes) <= time_of_day_tolerance_minutes
+        match_mask = same_time_mask & ~same_day_mask
+
+        same_time_vols = prior_volumes[match_mask]
+        seen_dates = set(prior_dates[match_mask])
+    else:
+        same_time_vols = np.array([])
+        seen_dates = set()
+
+    if len(seen_dates) >= MIN_DAYS_FOR_TIME_OF_DAY_RVOL and len(same_time_vols) > 0:
+        baseline = float(same_time_vols.mean())
         method = "TIME_OF_DAY_BASELINE"
         evidence = {"denominator_bars": len(same_time_vols), "trading_days_used": len(seen_dates)}
     elif bar_index >= MIN_BARS_FOR_ROLLING_RVOL:

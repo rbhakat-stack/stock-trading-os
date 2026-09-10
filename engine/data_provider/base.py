@@ -10,6 +10,8 @@ import pandas as pd
 
 
 class MarketDataProvider(Protocol):
-    def get_ohlcv(self, symbol: str, timeframe: str, start: datetime, end: datetime) -> pd.DataFrame: ...
+    def get_ohlcv(
+        self, symbol: str, timeframe: str, start: datetime, end: datetime, adjustment: str | None = None,
+    ) -> pd.DataFrame: ...
 
     def health(self) -> dict: ...

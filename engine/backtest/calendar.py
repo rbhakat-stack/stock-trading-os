@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 MARKET_TZ = ZoneInfo("America/New_York")
 SESSION_OPEN = time(9, 30)
 SESSION_CLOSE = time(16, 0)
@@ -146,3 +148,32 @@ def classify_missing_bar(ts: datetime) -> str:
     if not (bounds.open_at <= local < bounds.close_at):
         return "MARKET_CLOSED"
     return "MISSING_DURING_SESSION"
+
+
+def filter_to_regular_trading_hours(df: pd.DataFrame) -> pd.DataFrame:
+    """Phase 5.1P §1 — strips bars outside 09:30-16:00 America/New_York (and
+    any bar whose date isn't even a recognized trading day) from an intraday
+    bar series. This is the ONE place real-market historical data is
+    normalized to RTH-only before it reaches the rest of Phase 5 — providers
+    like Alpaca return pre-market/after-hours bars by default (verified via
+    real Alpaca validation), and nothing downstream (replay, statistics)
+    should ever have to know that.
+
+    Deliberately generic, not Alpaca-specific: any REAL_MARKET_DATA provider
+    would need the same normalization. Half-days are NOT specially detected
+    here (see this module's docstring on `SessionBounds.is_full_session_confirmed`
+    always being False) — a half-day's bars up to its early close simply pass
+    through unchanged since they fall inside 09:30-16:00; catching a session
+    that ends suspiciously early remains `engine.backtest.replay.
+    check_session_integrity`'s job at replay time, unaffected by this filter.
+    """
+    if df.empty:
+        return df
+    local_index = df.index.tz_convert(MARKET_TZ) if df.index.tz is not None else df.index.tz_localize(MARKET_TZ)
+    keep = pd.Series(False, index=df.index)
+    for d in sorted(set(local_index.date)):
+        bounds = session_bounds(d)
+        if bounds is None:
+            continue  # not a trading day at all (weekend/holiday) — every bar on it is excluded
+        keep |= (local_index >= bounds.open_at) & (local_index < bounds.close_at)
+    return df.loc[keep.to_numpy()]

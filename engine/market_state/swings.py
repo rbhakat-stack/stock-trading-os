@@ -121,11 +121,26 @@ def detect_swings(
     right_bars: int = 3,
     atr_period: int = 14,
     major_threshold: float = 0.55,
+    atr_series: pd.Series | None = None,
 ) -> list[SwingPoint]:
-    """`df` must be sorted ascending by a DatetimeIndex with open/high/low/close/volume columns."""
+    """`df` must be sorted ascending by a DatetimeIndex with open/high/low/close/volume columns.
+
+    `atr_series` (Phase 5.1P §Part B) is an optional PRECOMPUTED
+    `engine.features.volatility.atr(df, period=atr_period)` result — passing
+    it in skips this function's own internal, otherwise-redundant call to
+    `atr()` (profiling showed `market_intelligence.build_snapshot` and this
+    function each independently compute the identical series every
+    snapshot). `None` (the default) preserves the exact prior behavior of
+    always computing it internally — every existing caller is unaffected.
+    When provided, the caller is responsible for ensuring it was computed
+    with the same `df`/`atr_period` — this function does not re-validate
+    that, exactly like any other caller-supplied precomputed input elsewhere
+    in this codebase.
+    """
     if len(df) < left_bars + right_bars + 1:
         return []
-    atr_series = atr(df, period=atr_period)
+    if atr_series is None:
+        atr_series = atr(df, period=atr_period)
     raw_candidates = _find_candidates(df, left_bars, right_bars)
     cleaned = _dedupe_alternate(df, raw_candidates)
     return _score(df, cleaned, atr_series, major_threshold, left_bars, right_bars)

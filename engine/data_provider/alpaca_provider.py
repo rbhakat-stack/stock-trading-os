@@ -22,7 +22,19 @@ class AlpacaProvider:
 
         self._client = StockHistoricalDataClient(self.api_key, self.secret_key)
 
-    def get_ohlcv(self, symbol: str, timeframe: str, start: datetime, end: datetime) -> pd.DataFrame:
+    def get_ohlcv(
+        self, symbol: str, timeframe: str, start: datetime, end: datetime, adjustment: str | None = None,
+    ) -> pd.DataFrame:
+        """`adjustment` is EXPLICIT and opt-in only (§Phase 5.1P Part A-2):
+        `None` (the default) preserves this method's exact prior behavior —
+        no `adjustment` field sent to Alpaca at all, which real-Alpaca
+        validation empirically confirmed is identical to `adjustment="raw"`.
+        Existing/live callers (Market Reader, Trade Planner) never pass this
+        argument, so their behavior is byte-for-byte unchanged. Pass
+        `"raw"`, `"split"`, or `"all"` to request Alpaca's corresponding
+        adjustment mode explicitly — see `alpaca.data.enums.Adjustment`.
+        """
+        from alpaca.data.enums import Adjustment
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
@@ -37,12 +49,23 @@ class AlpacaProvider:
         if timeframe not in tf_map:
             raise ValueError(f"Unsupported timeframe: {timeframe}")
 
+        adjustment_kwargs = {}
+        if adjustment is not None:
+            try:
+                adjustment_kwargs["adjustment"] = Adjustment(adjustment)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Unsupported adjustment: {adjustment!r} (expected one of "
+                    f"{[a.value for a in Adjustment]})"
+                ) from exc
+
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=tf_map[timeframe],
             start=start,
             end=end,
             feed="iex",
+            **adjustment_kwargs,
         )
         bars = self._client.get_stock_bars(request)
         df = bars.df
