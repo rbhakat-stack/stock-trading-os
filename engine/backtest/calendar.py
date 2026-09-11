@@ -178,6 +178,27 @@ def classify_session_status(now: pd.Timestamp) -> SessionStatus:
     return SessionStatus.MARKET_CLOSED_TODAY
 
 
+def normalize_intraday_for_live_analysis(df: pd.DataFrame, timeframe_minutes: int, is_real_market_data: bool) -> pd.DataFrame:
+    """Application acceptance hardening — the live analysis boundary
+    (Market Reader, Trade Planner, or any other live-UI caller): applies
+    `filter_to_regular_trading_hours` for real-market intraday data only.
+
+    - `is_real_market_data=False` (synthetic demo data): returned unchanged
+      — synthetic bars are deliberately continuous, non-session-aware
+      calendar time, and RTH-filtering them would strip nearly all of it
+      rather than normalize it.
+    - `timeframe_minutes >= 1440` (daily): returned unchanged — a
+      time-of-day RTH window is meaningless for a `1day` bar's own
+      timestamp (mirrors `engine.backtest.ingestion.ingest_symbol_range`'s
+      identical guard).
+    - Otherwise: RTH-filtered, exactly as Phase 5.1P's historical ingestion
+      path already does — never a second RTH implementation.
+    """
+    if not is_real_market_data or timeframe_minutes >= 1440:
+        return df
+    return filter_to_regular_trading_hours(df)
+
+
 def filter_to_regular_trading_hours(df: pd.DataFrame) -> pd.DataFrame:
     """Phase 5.1P §1 — strips bars outside 09:30-16:00 America/New_York (and
     any bar whose date isn't even a recognized trading day) from an intraday

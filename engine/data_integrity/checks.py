@@ -3,10 +3,18 @@ generation must never proceed on stale, missing, or malformed data. Every issue
 found here is either a WARNING (surfaced, but analysis proceeds) or a FAILURE
 (analysis must stop — `has_failure()` is the caller's fail-closed check).
 
-Gap detection is intentionally a WARNING, not a FAILURE, in Phase 1: overnight
-and weekend gaps are expected and this module is not yet calendar-aware. A
-calendar-aware version arrives once `trading_calendar_sessions` exists
-(TRADING_OS_DESIGN.md §14a) — this is a known, documented Phase 1 simplification.
+Gap detection is intentionally a WARNING, not a FAILURE. It is now SESSION
+AWARE for intraday timeframes (see `_is_genuine_intraday_gap`): a jump from
+one trading day's bars to another (overnight, weekend, holiday) is expected
+and never flagged, reusing the same `engine.backtest.calendar` abstraction
+the staleness check below already relies on — never a second calendar
+implementation. A genuinely missing bar WITHIN a session still triggers the
+warning exactly as before. Daily-timeframe gap detection is UNCHANGED
+(still the flat interval-based check) — every consecutive daily bar
+legitimately falls on a different calendar date by definition, so the
+same-session-date approach used for intraday doesn't apply there; this is a
+known, narrower scope than intraday, not a regression (daily gap detection
+was not part of the reported issue this round addresses).
 
 Application acceptance hardening — STALE_DATA is EXCHANGE-SESSION AWARE
 (see `_staleness_reference_timestamp`): staleness is measured against the
@@ -65,8 +73,7 @@ def check_bars(
         issues.append(DataQualityIssue("NON_POSITIVE_PRICE", "Non-positive price value present", "FAILURE"))
 
     expected_delta = pd.Timedelta(minutes=timeframe_minutes)
-    gaps = df.index.to_series().diff().dropna()
-    if not gaps.empty and (gaps > expected_delta * 1.5).any():
+    if _is_genuine_intraday_gap(df.index, expected_delta, timeframe_minutes):
         issues.append(DataQualityIssue("GAP_DETECTED", "One or more bar gaps exceed 1.5x the expected interval", "WARNING"))
 
     if now is not None:
@@ -76,6 +83,36 @@ def check_bars(
             issues.append(DataQualityIssue("STALE_DATA", f"Latest bar is {staleness} old", "FAILURE"))
 
     return issues
+
+
+def _is_genuine_intraday_gap(index: pd.DatetimeIndex, expected_delta: pd.Timedelta, timeframe_minutes: int) -> bool:
+    """True if `index` contains a bar-to-bar jump exceeding 1.5x
+    `expected_delta` WITHIN the same trading session (America/New_York
+    calendar date) — a genuinely missing intraday bar. A jump that crosses
+    to a different calendar date (overnight, weekend, holiday) is expected
+    and never counted, regardless of how many non-trading days it spans.
+
+    Fully vectorized (no per-row Python loop) — `check_bars` runs on every
+    bar of a historical replay's growing prefix, so an O(n) Python loop
+    here would reintroduce exactly the per-call overhead Phase 5.1P's
+    profiling identified and removed elsewhere in this codebase.
+
+    Daily timeframes keep the original flat-interval behavior (every
+    consecutive daily bar is, by definition, on a different calendar date,
+    so the same-date check below would trivially never fire for them).
+    """
+    if len(index) < 2:
+        return False
+    if timeframe_minutes >= _ONE_DAY_MINUTES:
+        deltas = index.to_series().diff().dropna()
+        return bool((deltas > expected_delta * 1.5).any())
+
+    local = index.tz_convert(MARKET_TZ) if index.tz is not None else index.tz_localize(MARKET_TZ)
+    dates = pd.Series(local.date, index=index)
+    same_session = dates.eq(dates.shift(1))
+    deltas = index.to_series().diff()
+    genuine_gap = (deltas > expected_delta * 1.5) & same_session
+    return bool(genuine_gap.any())
 
 
 def _staleness_reference_timestamp(now: pd.Timestamp, timeframe_minutes: int) -> pd.Timestamp:

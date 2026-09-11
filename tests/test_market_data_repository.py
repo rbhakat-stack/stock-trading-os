@@ -8,6 +8,8 @@ import pathlib
 import sys
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from engine.market_state.opening_range import OpeningRangeEvaluation
@@ -360,3 +362,71 @@ def test_fetch_bars_empty_result_unchanged_shape():
     df = fetch_bars(client, "SPY", "5min")
     assert df.empty
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+
+
+# ---- Market Reader acceptance fix: "Unable to persist market analysis" ----
+#
+# Root cause: upsert_bars/upsert_swing_points call `.upsert(on_conflict=...)`,
+# which Postgres implements as INSERT ... ON CONFLICT DO UPDATE — the UPDATE
+# branch needs its own RLS policy, separate from INSERT. 0001_phase1_schema
+# only granted `for insert` on bars/swing_points (unlike `symbols`, which
+# correctly has both). A second refresh of an overlapping date range then
+# hits ON CONFLICT DO UPDATE and RLS silently blocks it. Fixed by
+# supabase/migrations/0008_market_reader_upsert_rls_fix.sql. These tests
+# lock in (a) the exact conflict targets the code sends, matching the real
+# unique constraints, so a future change can't silently drift from what the
+# DB actually enforces, and (b) that the fix migration exists with the
+# expected policies.
+
+
+class _FakeBarsTable:
+    def __init__(self, captured):
+        self._captured = captured
+
+    def upsert(self, rows, on_conflict=None):
+        self._captured["rows"] = rows
+        self._captured["on_conflict"] = on_conflict
+        return self
+
+    def execute(self):
+        return None
+
+
+class _FakeBarsClient:
+    def __init__(self):
+        self.captured = {}
+
+    def table(self, name):
+        assert name == "bars"
+        return _FakeBarsTable(self.captured)
+
+
+def test_upsert_bars_conflict_target_matches_the_bars_unique_constraint():
+    from repository.market_data import upsert_bars
+
+    df = pd.DataFrame(
+        {"open": [100.0], "high": [101.0], "low": [99.0], "close": [100.5], "volume": [1000]},
+        index=pd.DatetimeIndex([datetime(2024, 1, 2, 9, 30, tzinfo=timezone.utc)]),
+    )
+    client = _FakeBarsClient()
+    upsert_bars(client, "AAPL", "5min", df, provider="alpaca")
+    # matches migration 0001's `unique (symbol, timeframe, ts)` on `bars` exactly.
+    assert client.captured["on_conflict"] == "symbol,timeframe,ts"
+
+
+def test_upsert_swing_points_conflict_target_matches_the_swing_points_unique_constraint():
+    client = _FakeClient()
+    upsert_swing_points(client, "AAPL", "5min", [_pt(4, SwingType.HIGH)], algorithm_version="swings-v1")
+    # matches migration 0001's `unique (symbol, timeframe, ts, swing_type)` on `swing_points` exactly.
+    assert client.captured["on_conflict"] == "symbol,timeframe,ts,swing_type"
+
+
+def test_rls_upsert_fix_migration_grants_the_missing_update_policies():
+    migration_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "supabase" / "migrations" / "0008_market_reader_upsert_rls_fix.sql"
+    )
+    assert migration_path.exists(), "the RLS fix migration must exist and never be silently removed"
+    text = migration_path.read_text().lower()
+    assert "bars_update_authenticated" in text and "on bars for update" in text
+    assert "swing_points_update_authenticated" in text and "on swing_points for update" in text

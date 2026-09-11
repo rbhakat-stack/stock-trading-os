@@ -13,7 +13,7 @@ from plotly.subplots import make_subplots
 
 from auth import get_authed_client
 from authorization import require_authenticated
-from engine.backtest.calendar import SessionStatus, classify_session_status
+from engine.backtest.calendar import SessionStatus, classify_session_status, normalize_intraday_for_live_analysis
 from engine.data_provider.synthetic_provider import SyntheticProvider
 from engine.market_state.bos_choch import choch_banner_message
 from engine.market_state.market_intelligence import build_snapshot
@@ -137,14 +137,19 @@ if refresh:
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=int(lookback_days))
 
+    is_real_market_data = provider_name == "alpaca"
     with st.spinner("Fetching bars..."):
         df = provider.get_ohlcv(symbol, timeframe, start, end)
+        df = normalize_intraday_for_live_analysis(df, TIMEFRAME_MINUTES[timeframe], is_real_market_data)
 
         higher_tf_data = {}
         if include_multi_timeframe:
             for tf in MULTI_TIMEFRAME_CANDIDATES.get(timeframe, []):
                 try:
-                    higher_tf_data[tf] = provider.get_ohlcv(symbol, tf, start, end)
+                    tf_df = provider.get_ohlcv(symbol, tf, start, end)
+                    higher_tf_data[tf] = normalize_intraday_for_live_analysis(
+                        tf_df, TIMEFRAME_MINUTES[tf], is_real_market_data
+                    )
                 except Exception:  # noqa: BLE001 - multi-timeframe context is enrichment, never fatal
                     continue
 
