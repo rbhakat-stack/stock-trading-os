@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 
 from auth import get_authed_client
 from authorization import require_authenticated
+from engine.backtest.calendar import SessionStatus, classify_session_status
 from engine.data_provider.synthetic_provider import SyntheticProvider
 from engine.market_state.bos_choch import choch_banner_message
 from engine.market_state.market_intelligence import build_snapshot
@@ -213,7 +214,9 @@ if refresh:
         st.warning("Unable to persist market analysis. Please retry.")
         persisted = False
 
-    st.session_state["market_reader_snapshot"] = {"snapshot": snapshot, "df": df, "symbol": symbol, "timeframe": timeframe}
+    st.session_state["market_reader_snapshot"] = {
+        "snapshot": snapshot, "df": df, "symbol": symbol, "timeframe": timeframe, "fetch_now": end,
+    }
     if persisted:
         st.success(f"Loaded {len(df)} bars, {len(snapshot.swing_points)} swing points, {len(snapshot.events)} structural events.")
 
@@ -236,6 +239,24 @@ df_et = df.copy()
 df_et.index = df_et.index.tz_convert(MARKET_TZ)
 
 st.caption(f"**AS OF:** {_et(snapshot.as_of)} ET" if snapshot.as_of else "**AS OF:** —")
+
+# Application acceptance hardening: an informative, non-alarming data-status
+# banner reflecting exchange session state — never a red failure merely
+# because the regular session has closed for the day (see
+# engine.data_integrity.checks._staleness_reference_timestamp for the
+# underlying session-aware freshness fix this banner explains to the user).
+fetch_now = state.get("fetch_now")
+if fetch_now is not None:
+    latest_bar_str = f"{_et(snapshot.as_of).strftime('%I:%M %p')} ET" if snapshot.as_of else "—"
+    session_status = classify_session_status(pd.Timestamp(fetch_now))
+    if session_status == SessionStatus.ACTIVE_SESSION:
+        st.success(f"DATA CURRENT  \nLatest bar: {latest_bar_str}")
+    elif session_status == SessionStatus.MARKET_CLOSED_TODAY:
+        st.info(f"MARKET CLOSED — DATA CURRENT THROUGH LAST SESSION  \nLatest bar: {latest_bar_str}")
+    elif session_status == SessionStatus.MARKET_NOT_YET_OPEN:
+        st.info(f"MARKET NOT YET OPEN — USING PREVIOUS COMPLETED SESSION  \nLatest bar: {latest_bar_str}")
+    else:
+        st.info(f"MARKET CLOSED — USING MOST RECENT COMPLETED SESSION  \nLatest bar: {latest_bar_str}")
 
 for w in snapshot.warnings:
     st.warning(w)

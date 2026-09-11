@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from enum import Enum
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -148,6 +149,33 @@ def classify_missing_bar(ts: datetime) -> str:
     if not (bounds.open_at <= local < bounds.close_at):
         return "MARKET_CLOSED"
     return "MISSING_DURING_SESSION"
+
+
+class SessionStatus(str, Enum):
+    """Application acceptance hardening — UI-facing exchange session state
+    at a given instant, independent of any specific symbol's data. Drives
+    Market Reader's data-status banner (never a red DATA QUALITY FAILURE
+    merely because the regular session has closed for the day)."""
+    ACTIVE_SESSION = "ACTIVE_SESSION"
+    MARKET_CLOSED_TODAY = "MARKET_CLOSED_TODAY"              # today traded and has already closed
+    MARKET_NOT_YET_OPEN = "MARKET_NOT_YET_OPEN"               # today is a trading day, not open yet
+    MARKET_CLOSED_WEEKEND_HOLIDAY = "MARKET_CLOSED_WEEKEND_HOLIDAY"  # today isn't a trading day at all
+
+
+def classify_session_status(now: pd.Timestamp) -> SessionStatus:
+    """Classifies `now` into one of the four `SessionStatus` states, using
+    ONLY `session_bounds` — the same calendar abstraction `check_bars`'s
+    session-aware staleness check and Phase 5.1's replay engine already
+    rely on."""
+    local_now = now.tz_convert(MARKET_TZ) if now.tzinfo is not None else now.tz_localize(MARKET_TZ)
+    bounds = session_bounds(local_now.date())
+    if bounds is None:
+        return SessionStatus.MARKET_CLOSED_WEEKEND_HOLIDAY
+    if local_now < bounds.open_at:
+        return SessionStatus.MARKET_NOT_YET_OPEN
+    if local_now < bounds.close_at:
+        return SessionStatus.ACTIVE_SESSION
+    return SessionStatus.MARKET_CLOSED_TODAY
 
 
 def filter_to_regular_trading_hours(df: pd.DataFrame) -> pd.DataFrame:

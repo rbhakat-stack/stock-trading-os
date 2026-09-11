@@ -27,8 +27,18 @@ def test_nan_price_is_a_failure():
 
 
 def test_stale_data_is_a_failure():
-    df = make_flat_df([100.0] * 20)
-    now = df.index[-1] + pd.Timedelta(hours=2)
+    # Application acceptance hardening: staleness is exchange-session-aware
+    # (see tests/test_data_integrity_session_aware_staleness.py for the full
+    # suite) — this fixture must land DURING a real active RTH session for
+    # "2 hours since the last bar" to mean anything as staleness. Real ET
+    # session bars, not make_flat_df's default UTC-stamped "09:30".
+    idx = pd.date_range("2024-01-02 09:30", periods=20, freq="5min", tz="America/New_York")
+    df = pd.DataFrame(
+        {"open": [100.0] * 20, "high": [100.0] * 20, "low": [100.0] * 20, "close": [100.0] * 20,
+         "volume": [100_000] * 20},
+        index=idx,
+    ).tz_convert("UTC")
+    now = df.index[-1] + pd.Timedelta(hours=2)  # still well within 2024-01-02's 09:30-16:00 ET session
     issues = check_bars(df, timeframe_minutes=5, now=now)
     assert has_failure(issues)
     assert any(i.code == "STALE_DATA" for i in issues)
